@@ -1,6 +1,8 @@
 # Dependencies
 node_modules/
 plugin/node_modules/
+package-lock.json
+plugin/package-lock.json
 
 # OS files
 .DS_Store
