@@ -7,7 +7,7 @@
  * Runs before session-stop.mjs (summarization)
  */
 
-import { appendFileSync } from 'fs';
+import { appendFileSync, readFileSync, existsSync } from 'fs';
 import { ensureMemoryDirs, loadConfig } from './utils.mjs';
 
 // Read hook input from stdin
@@ -23,6 +23,44 @@ process.stdin.on('end', () => {
     process.exit(0);
   }
 });
+
+/**
+ * Read and parse transcript from transcript_path
+ * Claude Code provides transcript as a JSONL file path, not direct data
+ */
+function readTranscript(transcriptPath) {
+  if (!transcriptPath || !existsSync(transcriptPath)) {
+    return null;
+  }
+
+  try {
+    const content = readFileSync(transcriptPath, 'utf-8').trim();
+    if (!content) return null;
+
+    // Parse JSONL - each line is a JSON object
+    const lines = content.split('\n').filter(l => l.trim());
+    const transcript = [];
+
+    for (const line of lines) {
+      try {
+        const entry = JSON.parse(line);
+        // Transcript entries have role and message properties
+        if (entry.type === 'user' || entry.type === 'assistant') {
+          transcript.push({
+            role: entry.type,
+            content: entry.message?.content || entry.content
+          });
+        }
+      } catch {
+        // Skip malformed lines
+      }
+    }
+
+    return transcript.length > 0 ? transcript : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Split text into sentences
@@ -116,9 +154,12 @@ function extractiveSummarize(text, config) {
 }
 
 function processStop(hookData) {
-  const { transcript, cwd } = hookData;
+  const { transcript_path, cwd } = hookData;
 
-  if (!transcript || !Array.isArray(transcript) || transcript.length === 0) {
+  // Read transcript from file path (Claude Code passes path, not data)
+  const transcript = readTranscript(transcript_path);
+
+  if (!transcript || transcript.length === 0) {
     process.exit(0);
     return;
   }
