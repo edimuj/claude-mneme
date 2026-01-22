@@ -3,9 +3,11 @@
  * SubagentStop Hook - Agent Completion Capture
  * Captures summaries from specialized agents when they complete tasks
  * These are high-signal entries about complex work performed
+ *
+ * Note: Claude Code passes transcript_path (file path), not direct output
  */
 
-import { appendFileSync } from 'fs';
+import { appendFileSync, readFileSync, existsSync } from 'fs';
 import { ensureMemoryDirs } from './utils.mjs';
 
 // Read hook input from stdin
@@ -14,13 +16,70 @@ process.stdin.setEncoding('utf8');
 process.stdin.on('data', chunk => input += chunk);
 process.stdin.on('end', () => {
   try {
+    // DEBUG: Write raw hook data to file to see what Claude Code sends
+    appendFileSync('/tmp/subagent-stop-debug.json', input + '\n---\n');
+
     const hookData = JSON.parse(input);
     processSubagentStop(hookData);
   } catch (e) {
-    // Silent fail - don't block Claude Code
+    // DEBUG: Log errors too
+    appendFileSync('/tmp/subagent-stop-debug.json', `ERROR: ${e.message}\n---\n`);
     process.exit(0);
   }
 });
+
+/**
+ * Read and parse transcript from transcript_path
+ * Claude Code provides transcript as a JSONL file path, not direct data
+ */
+function readTranscript(transcriptPath) {
+  if (!transcriptPath || !existsSync(transcriptPath)) {
+    return null;
+  }
+
+  try {
+    const content = readFileSync(transcriptPath, 'utf-8').trim();
+    if (!content) return null;
+
+    // Parse JSONL - each line is a JSON object
+    const lines = content.split('\n').filter(l => l.trim());
+    const transcript = [];
+
+    for (const line of lines) {
+      try {
+        const entry = JSON.parse(line);
+        if (entry.type === 'user' || entry.type === 'assistant') {
+          transcript.push({
+            role: entry.type,
+            content: entry.message?.content || entry.content
+          });
+        }
+      } catch {
+        // Skip malformed lines
+      }
+    }
+
+    return transcript.length > 0 ? transcript : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Extract text content from transcript message
+ */
+function extractTextContent(content) {
+  if (typeof content === 'string') {
+    return content;
+  }
+  if (Array.isArray(content)) {
+    return content
+      .filter(block => block.type === 'text')
+      .map(block => block.text)
+      .join('\n');
+  }
+  return '';
+}
 
 /**
  * Extract a concise summary from agent output
@@ -62,9 +121,31 @@ function extractAgentSummary(output, maxLength = 300) {
 }
 
 function processSubagentStop(hookData) {
-  const { agent_type, task_description, output, cwd } = hookData;
+  const { agent_type, task_description, transcript_path, cwd } = hookData;
 
-  // Skip if no meaningful output
+  // Read transcript from file path (Claude Code passes path, not direct data)
+  const transcript = readTranscript(transcript_path);
+
+  if (!transcript || transcript.length === 0) {
+    process.exit(0);
+    return;
+  }
+
+  // Find the last assistant message (the agent's final output)
+  let lastAssistantMessage = null;
+  for (let i = transcript.length - 1; i >= 0; i--) {
+    if (transcript[i].role === 'assistant') {
+      lastAssistantMessage = transcript[i];
+      break;
+    }
+  }
+
+  if (!lastAssistantMessage) {
+    process.exit(0);
+    return;
+  }
+
+  const output = extractTextContent(lastAssistantMessage.content);
   if (!output || !output.trim()) {
     process.exit(0);
     return;
