@@ -4,6 +4,11 @@
  * Captures Claude's final response when a turn completes
  * Uses extractive summarization to keep log entries concise
  *
+ * Handles markdown formatting:
+ * - Splits on paragraph breaks (double newlines)
+ * - Treats bullet list items as separate units
+ * - Falls back to sentence boundary detection
+ *
  * Runs before session-stop.mjs (summarization)
  */
 
@@ -63,33 +68,50 @@ function readTranscript(transcriptPath) {
 }
 
 /**
- * Split text into sentences
- * Handles common abbreviations and edge cases
+ * Split text into logical units (sentences, paragraphs, bullet items)
+ * Handles markdown formatting, bullet lists, and paragraph breaks
  */
 function splitSentences(text) {
-  // Normalize whitespace
-  const normalized = text.replace(/\s+/g, ' ').trim();
+  const units = [];
 
-  // Split on sentence boundaries, being careful with abbreviations
-  const sentences = [];
-  let current = '';
+  // Step 1: Split on paragraph breaks first (preserves structure)
+  const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim());
 
-  // Simple regex-based split - handles most cases
-  const parts = normalized.split(/(?<=[.!?])\s+(?=[A-Z])/);
+  for (const para of paragraphs) {
+    // Step 2: Check if this paragraph is a bullet list
+    const lines = para.split('\n').map(l => l.trim()).filter(l => l);
+    const isBulletList = lines.every(l => /^[-*•]\s/.test(l) || l === '');
 
-  for (const part of parts) {
-    const trimmed = part.trim();
-    if (trimmed.length > 0) {
-      sentences.push(trimmed);
+    if (isBulletList) {
+      // Each bullet item becomes a unit
+      for (const line of lines) {
+        const content = line.replace(/^[-*•]\s+/, '').trim();
+        if (content) {
+          units.push(content);
+        }
+      }
+    } else {
+      // Step 3: Split paragraph into sentences
+      // Normalize internal whitespace but preserve the paragraph as a unit first
+      const normalized = para.replace(/\s+/g, ' ').trim();
+
+      // Split on sentence boundaries (period/!/? followed by space and capital)
+      const sentences = normalized.split(/(?<=[.!?])\s+(?=[A-Z])/).filter(s => s.trim());
+
+      if (sentences.length > 0) {
+        units.push(...sentences);
+      } else if (normalized) {
+        units.push(normalized);
+      }
     }
   }
 
-  // If no splits found, return the whole text as one sentence
-  if (sentences.length === 0 && normalized.length > 0) {
-    sentences.push(normalized);
+  // Fallback: if nothing was extracted, return original text normalized
+  if (units.length === 0 && text.trim()) {
+    units.push(text.replace(/\s+/g, ' ').trim());
   }
 
-  return sentences;
+  return units;
 }
 
 /**
