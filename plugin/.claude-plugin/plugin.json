@@ -1,0 +1,17 @@
+{
+  "name": "claude-mneme",
+  "version": "2.0.0",
+  "description": "Persistent memory system for Claude Code - remembers context across sessions",
+  "author": {
+    "name": "Edin Mujkanovic"
+  },
+  "license": "MIT",
+  "repository": "https://github.com/edimuj/claude-mneme",
+  "keywords": [
+    "memory",
+    "context",
+    "persistence",
+    "mneme",
+    "claude-code"
+  ]
+}

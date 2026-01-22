@@ -1,0 +1,19 @@
+{
+  "name": "claude-mneme",
+  "owner": {
+    "name": "edimuj",
+    "url": "https://github.com/edimuj"
+  },
+  "metadata": {
+    "description": "Persistent memory plugin for Claude Code",
+    "repository": "https://github.com/edimuj/claude-mneme"
+  },
+  "plugins": [
+    {
+      "name": "claude-mneme",
+      "version": "2.0.0",
+      "source": "./plugin",
+      "description": "Persistent memory system for Claude Code - remembers context across sessions"
+    }
+  ]
+}
