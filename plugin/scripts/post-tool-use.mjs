@@ -6,7 +6,7 @@
  */
 
 import { appendFileSync } from 'fs';
-import { ensureMemoryDirs } from './utils.mjs';
+import { ensureMemoryDirs, maybeSummarize } from './utils.mjs';
 
 // Track last logged todos to avoid duplicates
 let lastTodoHash = '';
@@ -115,6 +115,7 @@ function processTodoWrite(hookData) {
   };
 
   appendFileSync(paths.log, JSON.stringify(entry) + '\n');
+  maybeSummarize(cwd || process.cwd());
   return true;
 }
 
@@ -139,6 +140,7 @@ function processTaskCreate(hookData) {
   };
 
   appendFileSync(paths.log, JSON.stringify(entry) + '\n');
+  maybeSummarize(cwd || process.cwd());
   return true;
 }
 
@@ -179,6 +181,7 @@ function processTaskUpdate(hookData) {
   };
 
   appendFileSync(paths.log, JSON.stringify(entry) + '\n');
+  maybeSummarize(cwd || process.cwd());
   return true;
 }
 
@@ -224,6 +227,7 @@ function processBash(hookData) {
   };
 
   appendFileSync(paths.log, JSON.stringify(entry) + '\n');
+  maybeSummarize(cwd || process.cwd());
   return true;
 }
 

@@ -25,7 +25,7 @@ Claude Mneme uses Claude Code's hook system to capture context at key moments:
 | **SubagentStop** | Summaries from specialized agents (explore, test-runner, etc.) |
 | **Stop** | Assistant's final response summary |
 
-When your log reaches 50 entries, Mneme automatically summarizes the older entries using Haiku, keeping the 10 most recent for quick context.
+When your log reaches 50 entries, Mneme automatically summarizes the older entries using Haiku, keeping the 10 most recent for quick context. Summarization is checked after every log write, so you don't have to wait for session end.
 
 ## Entry Types
 
@@ -117,6 +117,7 @@ To keep memory relevant, Mneme automatically filters:
 
 ## Version History
 
+- **2.2.0** - Summarization now triggers on every log write instead of only at session end
 - **2.1.0** - Added TaskCreate/TaskUpdate hooks for new task tools, SubagentStop capture
 - **2.0.0** - Renamed to claude-mneme, refactored to capture assistant responses instead of tool-level noise
 - **1.3.0** - Added UserPromptSubmit hook and TodoWrite capture for richer context

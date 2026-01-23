@@ -8,7 +8,7 @@
  */
 
 import { appendFileSync, readFileSync, existsSync } from 'fs';
-import { ensureMemoryDirs } from './utils.mjs';
+import { ensureMemoryDirs, maybeSummarize } from './utils.mjs';
 
 // Read hook input from stdin
 let input = '';
@@ -184,6 +184,10 @@ function processSubagentStop(hookData) {
   };
 
   appendFileSync(paths.log, JSON.stringify(entry) + '\n');
+
+  // Check if summarization is needed
+  maybeSummarize(cwd || process.cwd());
+
   process.exit(0);
 }
 

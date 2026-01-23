@@ -3,9 +3,10 @@
  */
 
 import { existsSync, mkdirSync, readFileSync } from 'fs';
-import { execFileSync } from 'child_process';
+import { execFileSync, spawn } from 'child_process';
 import { homedir } from 'os';
-import { join, basename } from 'path';
+import { join, basename, dirname } from 'path';
+import { fileURLToPath } from 'url';
 
 export const MEMORY_BASE = join(homedir(), '.claude-mneme');
 export const CONFIG_FILE = join(MEMORY_BASE, 'config.json');
@@ -91,4 +92,55 @@ export function loadConfig() {
     }
   }
   return defaultConfig;
+}
+
+/**
+ * Check if summarization is needed and spawn it in background if so
+ * Call this after appending to the log
+ */
+export function maybeSummarize(cwd = process.cwd()) {
+  const paths = ensureMemoryDirs(cwd);
+  const config = loadConfig();
+
+  // Quick check: does log exist and have enough entries?
+  if (!existsSync(paths.log)) {
+    return;
+  }
+
+  try {
+    const logContent = readFileSync(paths.log, 'utf-8').trim();
+    if (!logContent) return;
+
+    const entryCount = logContent.split('\n').filter(l => l).length;
+
+    if (entryCount < config.maxLogEntriesBeforeSummarize) {
+      return;
+    }
+
+    // Check for existing lock (avoid spawning if already running)
+    const lockFile = paths.log + '.lock';
+    if (existsSync(lockFile)) {
+      const lockContent = readFileSync(lockFile, 'utf-8').trim();
+      const lockTime = parseInt(lockContent, 10);
+      if (lockTime && Date.now() - lockTime < 5 * 60 * 1000) {
+        // Lock is fresh, summarization already running
+        return;
+      }
+    }
+
+    // Spawn summarize.mjs in background
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = dirname(__filename);
+    const summarizeScript = join(__dirname, 'summarize.mjs');
+
+    const child = spawn('node', [summarizeScript, cwd], {
+      detached: true,
+      stdio: 'ignore',
+      cwd: cwd
+    });
+
+    child.unref();
+  } catch {
+    // Silent fail - don't block the calling script
+  }
 }

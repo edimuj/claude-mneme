@@ -13,7 +13,7 @@
  */
 
 import { appendFileSync, readFileSync, existsSync } from 'fs';
-import { ensureMemoryDirs, loadConfig } from './utils.mjs';
+import { ensureMemoryDirs, loadConfig, maybeSummarize } from './utils.mjs';
 
 // Read hook input from stdin
 let input = '';
@@ -242,6 +242,10 @@ function processStop(hookData) {
   };
 
   appendFileSync(paths.log, JSON.stringify(entry) + '\n');
+
+  // Check if summarization is needed
+  maybeSummarize(cwd || process.cwd());
+
   process.exit(0);
 }
 
