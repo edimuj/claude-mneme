@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
- * PostToolUse Hook - TodoWrite and Git Commit Capture
- * Captures task context from TodoWrite and commit messages from Bash git commits
+ * PostToolUse Hook - Task and Git Commit Capture
+ * Captures task context from TodoWrite, TaskCreate, TaskUpdate
+ * and commit messages from Bash git commits
  */
 
 import { appendFileSync } from 'fs';
@@ -118,6 +119,70 @@ function processTodoWrite(hookData) {
 }
 
 /**
+ * Process TaskCreate tool usage
+ */
+function processTaskCreate(hookData) {
+  const { tool_input, cwd } = hookData;
+
+  const { subject, description } = tool_input || {};
+  if (!subject) {
+    return false;
+  }
+
+  // Get project-specific paths
+  const paths = ensureMemoryDirs(cwd || process.cwd());
+
+  const entry = {
+    ts: new Date().toISOString(),
+    type: 'task',
+    content: `Task created: ${subject}`
+  };
+
+  appendFileSync(paths.log, JSON.stringify(entry) + '\n');
+  return true;
+}
+
+/**
+ * Process TaskUpdate tool usage
+ */
+function processTaskUpdate(hookData) {
+  const { tool_input, cwd } = hookData;
+
+  const { taskId, status, subject } = tool_input || {};
+  if (!taskId) {
+    return false;
+  }
+
+  // Only log meaningful status changes
+  if (!status && !subject) {
+    return false;
+  }
+
+  // Get project-specific paths
+  const paths = ensureMemoryDirs(cwd || process.cwd());
+
+  let content;
+  if (status === 'in_progress') {
+    content = `Task started: ${subject || `#${taskId}`}`;
+  } else if (status === 'completed') {
+    content = `Task completed: ${subject || `#${taskId}`}`;
+  } else if (subject) {
+    content = `Task updated: ${subject}`;
+  } else {
+    return false;
+  }
+
+  const entry = {
+    ts: new Date().toISOString(),
+    type: 'task',
+    content
+  };
+
+  appendFileSync(paths.log, JSON.stringify(entry) + '\n');
+  return true;
+}
+
+/**
  * Process Bash tool usage - only capture git commits
  */
 function processBash(hookData) {
@@ -167,6 +232,10 @@ function processToolUse(hookData) {
 
   if (tool_name === 'TodoWrite') {
     processTodoWrite(hookData);
+  } else if (tool_name === 'TaskCreate') {
+    processTaskCreate(hookData);
+  } else if (tool_name === 'TaskUpdate') {
+    processTaskUpdate(hookData);
   } else if (tool_name === 'Bash') {
     processBash(hookData);
   }

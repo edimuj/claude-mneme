@@ -6,7 +6,8 @@
 
 ## Features
 
-- **Automatic Context Capture** - Silently logs user prompts, task progress, and assistant responses
+- **Automatic Context Capture** - Silently logs user prompts, task progress, git commits, and assistant responses
+- **Subagent Tracking** - Captures summaries from specialized agents when they complete tasks
 - **Smart Summarization** - Uses Haiku to compress old entries when the log grows too large
 - **Project-Aware** - Maintains separate memory for each project you work on
 - **Zero Configuration** - Works out of the box with sensible defaults
@@ -20,10 +21,25 @@ Claude Mneme uses Claude Code's hook system to capture context at key moments:
 |------|-----------------|
 | **SessionStart** | Injects memory summary + recent entries into session |
 | **UserPromptSubmit** | Your prompts and questions |
-| **PostToolUse** | Task progress (from TodoWrite) |
+| **PostToolUse** | Task progress (TaskCreate, TaskUpdate, TodoWrite) and git commits |
+| **SubagentStop** | Summaries from specialized agents (explore, test-runner, etc.) |
 | **Stop** | Assistant's final response summary |
 
 When your log reaches 50 entries, Mneme automatically summarizes the older entries using Haiku, keeping the 10 most recent for quick context.
+
+## Entry Types
+
+| Type | Source | Description |
+|------|--------|-------------|
+| `prompt` | UserPromptSubmit | User requests and questions |
+| `task` | TaskCreate, TaskUpdate, TodoWrite | Current work focus and progress |
+| `commit` | Bash (git commit) | Git commit messages |
+| `agent` | SubagentStop | Specialized agent completion summaries |
+| `response` | Stop | Assistant's summarized response |
+| `preference` | /remember | User preferences (coding style, tools) |
+| `project` | /remember | Project information and status |
+| `fact` | /remember | Facts about user or environment |
+| `note` | /remember | General notes |
 
 ## Installation
 
@@ -34,6 +50,18 @@ claude plugin marketplace add edimuj/claude-mneme
 # Install the plugin
 claude plugin install claude-mneme@claude-mneme
 ```
+
+## Manual Memory with /remember
+
+Use the `/remember` command to manually save memories:
+
+```
+/remember I prefer TypeScript over JavaScript
+/remember The auth system uses JWT tokens stored in Redis
+/remember Working on a React Native app called GhostTube
+```
+
+Types are automatically inferred, or you can be explicit about preferences, project info, facts, or notes.
 
 ## Memory Storage
 
@@ -86,6 +114,13 @@ To keep memory relevant, Mneme automatically filters:
 
 - Claude Code CLI
 - Node.js 18+
+
+## Version History
+
+- **2.1.0** - Added TaskCreate/TaskUpdate hooks for new task tools, SubagentStop capture
+- **2.0.0** - Renamed to claude-mneme, refactored to capture assistant responses instead of tool-level noise
+- **1.3.0** - Added UserPromptSubmit hook and TodoWrite capture for richer context
+- **1.2.0** - Initial release with SessionStart, PostToolUse, Stop hooks
 
 ## License
 
