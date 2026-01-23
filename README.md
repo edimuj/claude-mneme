@@ -88,7 +88,7 @@ Edit `~/.claude-mneme/config.json`:
   "maxResponseLength": 1000,
   "summarizeResponses": true,
   "maxSummarySentences": 4,
-  "model": "claude-haiku-4-20250514"
+  "model": "haiku"
 }
 ```
 
@@ -99,7 +99,7 @@ Edit `~/.claude-mneme/config.json`:
 | `maxResponseLength` | 1000 | Maximum characters for captured responses |
 | `summarizeResponses` | true | Enable extractive summarization of responses |
 | `maxSummarySentences` | 4 | Max sentences to keep from each response |
-| `model` | claude-haiku-4-20250514 | Model used for summarization |
+| `model` | haiku | Model alias used for summarization (haiku, sonnet, opus) |
 
 ## What Gets Filtered Out
 

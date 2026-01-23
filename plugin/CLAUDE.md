@@ -61,7 +61,7 @@ Edit `~/.claude-mneme/config.json`:
   "maxResponseLength": 1000,
   "summarizeResponses": true,
   "maxSummarySentences": 4,
-  "model": "claude-haiku-4-20250514"
+  "model": "haiku"
 }
 ```
 

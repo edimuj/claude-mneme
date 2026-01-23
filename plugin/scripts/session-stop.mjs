@@ -18,7 +18,7 @@ if (!existsSync(CONFIG_FILE)) {
   writeFileSync(CONFIG_FILE, JSON.stringify({
     maxLogEntriesBeforeSummarize: 50,
     keepRecentEntries: 10,
-    model: 'claude-haiku-4-20250514',
+    model: 'haiku',
     claudePath: '/Users/admin/.local/bin/claude'
   }, null, 2));
 }
