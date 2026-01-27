@@ -19,7 +19,7 @@ Claude Mneme uses Claude Code's hook system to capture context at key moments:
 
 | Hook | What It Captures |
 |------|-----------------|
-| **SessionStart** | Injects memory summary + recent entries into session |
+| **SessionStart** | Injects memory summary, git changes since last session, and recent entries |
 | **UserPromptSubmit** | Your prompts and questions |
 | **PostToolUse** | Task progress (TaskCreate, TaskUpdate, TodoWrite) and git commits |
 | **SubagentStop** | Summaries from specialized agents (explore, test-runner, etc.) |
@@ -71,10 +71,14 @@ Types are automatically inferred, or you can be explicit about preferences, proj
 └── projects/
     ├── my-project/
     │   ├── log.jsonl              # Recent memory entries
-    │   └── summary.md             # AI-generated summary
+    │   ├── summary.md             # AI-generated summary
+    │   ├── remembered.json        # Persistent /remember entries
+    │   └── .last-session          # Timestamp for git changes tracking
     └── another-project/
         ├── log.jsonl
-        └── summary.md
+        ├── summary.md
+        ├── remembered.json
+        └── .last-session
 ```
 
 ## Configuration
@@ -117,6 +121,7 @@ To keep memory relevant, Mneme automatically filters:
 
 ## Version History
 
+- **2.3.0** - Git changes since last session in injection, 24h timestamps, async logging hooks, response filtering, task tracking cleanup
 - **2.2.0** - Summarization now triggers on every log write instead of only at session end
 - **2.1.0** - Added TaskCreate/TaskUpdate hooks for new task tools, SubagentStop capture
 - **2.0.0** - Renamed to claude-mneme, refactored to capture assistant responses instead of tool-level noise

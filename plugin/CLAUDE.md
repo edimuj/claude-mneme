@@ -4,7 +4,7 @@ Persistent memory system for Claude Code - remembers context across sessions.
 
 ## How It Works
 
-1. **SessionStart**: Injects memory context (summary + recent entries) into session
+1. **SessionStart**: Injects memory context (summary + git changes + recent entries) into session
 2. **UserPromptSubmit**: Captures user prompts to understand intent and context
 3. **PostToolUse**: Captures task progress (TaskCreate, TaskUpdate, TodoWrite) and git commits
 4. **SubagentStop**: Captures summaries from specialized agents when they complete
@@ -47,9 +47,13 @@ Memory types for manual entries:
 
 ## Memory Storage
 
-- `~/.claude-mneme/projects/<project>/log.jsonl` - Recent memory entries
+- `~/.claude-mneme/projects/<project>/log.jsonl` - Activity log (auto-summarized)
 - `~/.claude-mneme/projects/<project>/summary.md` - AI-generated summary
+- `~/.claude-mneme/projects/<project>/remembered.json` - Persistent /remember entries (never auto-removed)
+- `~/.claude-mneme/projects/<project>/.last-session` - Timestamp for git changes tracking
 - `~/.claude-mneme/config.json` - Global settings
+
+**Important:** `/remember` entries are stored in `remembered.json` and persist permanently. They are injected into every session. To remove or edit them, the user must manually edit the file.
 
 ## Configuration
 
@@ -67,6 +71,7 @@ Edit `~/.claude-mneme/config.json`:
 
 ## Version History
 
+- **2.3.0** - Git changes since last session in injection, 24h timestamps, async logging hooks, response filtering, task tracking cleanup
 - **2.1.0** - Added TaskCreate/TaskUpdate hooks for new task tools, SubagentStop capture
 - **2.0.0** - Renamed to claude-mneme, refactored to capture assistant responses instead of tool-level noise
 - **1.3.0** - Added UserPromptSubmit hook and TodoWrite capture for richer context

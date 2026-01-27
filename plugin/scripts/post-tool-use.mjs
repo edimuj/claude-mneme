@@ -5,7 +5,8 @@
  * and commit messages from Bash git commits
  */
 
-import { appendFileSync } from 'fs';
+import { appendFileSync, readFileSync, writeFileSync, existsSync } from 'fs';
+import { join } from 'path';
 import { ensureMemoryDirs, maybeSummarize } from './utils.mjs';
 
 // Track last logged todos to avoid duplicates
@@ -120,32 +121,54 @@ function processTodoWrite(hookData) {
 }
 
 /**
+ * Read the task subject tracking file
+ */
+function readTaskTracking(projectDir) {
+  const trackingPath = join(projectDir, 'active-tasks.json');
+  if (existsSync(trackingPath)) {
+    try {
+      return JSON.parse(readFileSync(trackingPath, 'utf-8'));
+    } catch {
+      return { nextId: 1, subjects: {} };
+    }
+  }
+  return { nextId: 1, subjects: {} };
+}
+
+/**
+ * Write the task subject tracking file
+ */
+function writeTaskTracking(projectDir, tracking) {
+  const trackingPath = join(projectDir, 'active-tasks.json');
+  writeFileSync(trackingPath, JSON.stringify(tracking));
+}
+
+/**
  * Process TaskCreate tool usage
+ * Stores the subject in a tracking file so TaskUpdate completions can reference it
  */
 function processTaskCreate(hookData) {
   const { tool_input, cwd } = hookData;
 
-  const { subject, description } = tool_input || {};
+  const { subject } = tool_input || {};
   if (!subject) {
     return false;
   }
 
-  // Get project-specific paths
   const paths = ensureMemoryDirs(cwd || process.cwd());
+  const tracking = readTaskTracking(paths.project);
 
-  const entry = {
-    ts: new Date().toISOString(),
-    type: 'task',
-    content: `Task created: ${subject}`
-  };
+  // Store subject keyed by sequential ID (matches Claude Code's 1-based task IDs)
+  tracking.subjects[String(tracking.nextId)] = subject;
+  tracking.nextId++;
 
-  appendFileSync(paths.log, JSON.stringify(entry) + '\n');
-  maybeSummarize(cwd || process.cwd());
+  writeTaskTracking(paths.project, tracking);
   return true;
 }
 
 /**
  * Process TaskUpdate tool usage
+ * Only logs completions — resolves subject from tracking file
  */
 function processTaskUpdate(hookData) {
   const { tool_input, cwd } = hookData;
@@ -155,29 +178,36 @@ function processTaskUpdate(hookData) {
     return false;
   }
 
-  // Only log meaningful status changes
-  if (!status && !subject) {
-    return false;
-  }
-
-  // Get project-specific paths
   const paths = ensureMemoryDirs(cwd || process.cwd());
+  const tracking = readTaskTracking(paths.project);
 
-  let content;
-  if (status === 'in_progress') {
-    content = `Task started: ${subject || `#${taskId}`}`;
-  } else if (status === 'completed') {
-    content = `Task completed: ${subject || `#${taskId}`}`;
-  } else if (subject) {
-    content = `Task updated: ${subject}`;
-  } else {
+  // Clean up deleted tasks from tracking
+  if (status === 'deleted') {
+    delete tracking.subjects[String(taskId)];
+    writeTaskTracking(paths.project, tracking);
     return false;
   }
+
+  // Only log completions
+  if (status !== 'completed') {
+    return false;
+  }
+
+  // Resolve subject: prefer explicit subject, fall back to tracked subject
+  const resolvedSubject = subject || tracking.subjects[String(taskId)];
+  if (!resolvedSubject) {
+    return false;
+  }
+
+  // Clean up tracked task
+  delete tracking.subjects[String(taskId)];
+  writeTaskTracking(paths.project, tracking);
 
   const entry = {
     ts: new Date().toISOString(),
     type: 'task',
-    content
+    action: 'completed',
+    subject: resolvedSubject
   };
 
   appendFileSync(paths.log, JSON.stringify(entry) + '\n');
@@ -223,7 +253,7 @@ function processBash(hookData) {
   const entry = {
     ts: new Date().toISOString(),
     type: 'commit',
-    content: `Git commit: ${message}`
+    content: message
   };
 
   appendFileSync(paths.log, JSON.stringify(entry) + '\n');

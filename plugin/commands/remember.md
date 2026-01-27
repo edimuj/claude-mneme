@@ -24,20 +24,29 @@ Types to use:
 - `fact` - Facts about the user or environment
 - `note` - General notes
 
+## How it works
+
+Remembered items are stored in a dedicated persistent file (`remembered.json`) separate from the activity log. They are **never summarized or removed automatically** — they are injected into every session exactly as saved.
+
+If the user wants to remove or edit remembered items, they must manually edit the file:
+`~/.claude-mneme/projects/<project>/remembered.json`
+
+Let the user know this when saving, e.g.: "Saved. This will persist across all future sessions. To remove it later, edit `remembered.json` in your project's memory directory."
+
 ## Guidelines
 
 1. Parse what the user wants to remember and choose the appropriate type
 2. Keep the content concise but complete
-3. Confirm what was saved after running the command
+3. Confirm what was saved and briefly explain persistence
 4. If ambiguous, default to `note` type
 
 ## Examples
 
 User: `/remember I prefer functional programming over OOP`
-→ Save as `preference`: "Prefers functional programming over OOP"
+-> Save as `preference`: "Prefers functional programming over OOP"
 
 User: `/remember working on a React Native app called GhostTube`
-→ Save as `project`: "Working on React Native app called GhostTube"
+-> Save as `project`: "Working on React Native app called GhostTube"
 
 User: `/remember`
-→ Ask: "What would you like me to remember?"
+-> Ask: "What would you like me to remember?"

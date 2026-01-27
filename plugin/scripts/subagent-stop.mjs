@@ -8,7 +8,7 @@
  */
 
 import { appendFileSync, readFileSync, existsSync } from 'fs';
-import { ensureMemoryDirs, maybeSummarize } from './utils.mjs';
+import { ensureMemoryDirs, loadConfig, maybeSummarize, extractiveSummarize } from './utils.mjs';
 
 // Read hook input from stdin
 let input = '';
@@ -16,14 +16,10 @@ process.stdin.setEncoding('utf8');
 process.stdin.on('data', chunk => input += chunk);
 process.stdin.on('end', () => {
   try {
-    // DEBUG: Write raw hook data to file to see what Claude Code sends
-    appendFileSync('/tmp/subagent-stop-debug.json', input + '\n---\n');
-
     const hookData = JSON.parse(input);
     processSubagentStop(hookData);
   } catch (e) {
-    // DEBUG: Log errors too
-    appendFileSync('/tmp/subagent-stop-debug.json', `ERROR: ${e.message}\n---\n`);
+    // Silent fail - don't block Claude Code
     process.exit(0);
   }
 });
@@ -82,50 +78,32 @@ function extractTextContent(content) {
 }
 
 /**
- * Extract a concise summary from agent output
- * Focuses on the first few meaningful sentences
+ * Check if a very recent response entry already covers the same content.
+ * Prevents duplicate logging when both stop-capture and subagent-stop fire.
  */
-function extractAgentSummary(output, maxLength = 300) {
-  if (!output || typeof output !== 'string') {
-    return null;
-  }
-
-  // Clean up the output
-  let text = output.trim();
-
-  // Remove common prefixes/noise
-  text = text.replace(/^(I've |I have |I |The agent |Agent )/i, '');
-
-  // Get first paragraph or first few sentences
-  const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim());
-  if (paragraphs.length > 0) {
-    text = paragraphs[0];
-  }
-
-  // Normalize whitespace
-  text = text.replace(/\s+/g, ' ').trim();
-
-  // Truncate if too long
-  if (text.length > maxLength) {
-    // Try to cut at sentence boundary
-    const truncated = text.substring(0, maxLength);
-    const lastSentence = truncated.lastIndexOf('. ');
-    if (lastSentence > maxLength * 0.5) {
-      text = truncated.substring(0, lastSentence + 1);
-    } else {
-      text = truncated + '...';
+function isDuplicateOfRecentResponse(content, logPath) {
+  if (!existsSync(logPath)) return false;
+  try {
+    const lines = readFileSync(logPath, 'utf-8').trim().split('\n');
+    const now = Date.now();
+    for (const line of lines.slice(-3)) {
+      const entry = JSON.parse(line);
+      if (entry.type === 'response' && (now - new Date(entry.ts).getTime()) < 30000) {
+        const a = content.substring(0, 100).toLowerCase();
+        const b = (entry.content || '').substring(0, 100).toLowerCase();
+        if (a === b || a.startsWith(b) || b.startsWith(a)) {
+          return true;
+        }
+      }
     }
-  }
-
-  return text;
+  } catch {}
+  return false;
 }
 
 function processSubagentStop(hookData) {
   const { agent_type, task_description, transcript_path, cwd } = hookData;
 
-  // Read transcript from file path (Claude Code passes path, not direct data)
   const transcript = readTranscript(transcript_path);
-
   if (!transcript || transcript.length === 0) {
     process.exit(0);
     return;
@@ -151,41 +129,40 @@ function processSubagentStop(hookData) {
     return;
   }
 
-  // Extract agent name for context
   const agentName = agent_type || 'agent';
+  const config = loadConfig();
+  const paths = ensureMemoryDirs(cwd || process.cwd());
 
-  // Extract a concise summary from the output
-  const summary = extractAgentSummary(output);
+  // Use shared extractive summarization (with lead-in stripping)
+  const summary = extractiveSummarize(output, config);
 
   if (!summary) {
     process.exit(0);
     return;
   }
 
-  // Build the memory entry
+  // Build content, include task description if short
   const parts = [];
-
-  // Include task description if available and short
   if (task_description && task_description.length < 50) {
-    parts.push(`[${agentName}] ${task_description}:`);
-  } else {
-    parts.push(`[${agentName}]`);
+    parts.push(`${task_description}:`);
   }
-
   parts.push(summary);
+  const content = parts.join(' ');
 
-  // Get project-specific paths
-  const paths = ensureMemoryDirs(cwd || process.cwd());
+  // Skip if a recent response entry already covers the same content
+  if (isDuplicateOfRecentResponse(content, paths.log)) {
+    process.exit(0);
+    return;
+  }
 
   const entry = {
     ts: new Date().toISOString(),
     type: 'agent',
-    content: parts.join(' ')
+    agent_type: agentName,
+    content
   };
 
   appendFileSync(paths.log, JSON.stringify(entry) + '\n');
-
-  // Check if summarization is needed
   maybeSummarize(cwd || process.cwd());
 
   process.exit(0);

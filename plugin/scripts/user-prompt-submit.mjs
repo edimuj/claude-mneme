@@ -68,7 +68,7 @@ function processPrompt(hookData) {
   const entry = {
     ts: new Date().toISOString(),
     type: 'prompt',
-    content: `User: ${content}`
+    content
   };
 
   appendFileSync(paths.log, JSON.stringify(entry) + '\n');

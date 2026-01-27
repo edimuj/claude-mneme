@@ -18,7 +18,8 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/user-prompt-submit.mjs\"",
-            "timeout": 5
+            "timeout": 5,
+            "async": true
           }
         ]
       }
@@ -30,7 +31,8 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/post-tool-use.mjs\"",
-            "timeout": 5
+            "timeout": 5,
+            "async": true
           }
         ]
       },
@@ -40,7 +42,8 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/post-tool-use.mjs\"",
-            "timeout": 5
+            "timeout": 5,
+            "async": true
           }
         ]
       },
@@ -50,7 +53,8 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/post-tool-use.mjs\"",
-            "timeout": 5
+            "timeout": 5,
+            "async": true
           }
         ]
       },
@@ -60,7 +64,8 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/post-tool-use.mjs\"",
-            "timeout": 5
+            "timeout": 5,
+            "async": true
           }
         ]
       }
@@ -71,7 +76,8 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/subagent-stop.mjs\"",
-            "timeout": 5
+            "timeout": 5,
+            "async": true
           }
         ]
       }

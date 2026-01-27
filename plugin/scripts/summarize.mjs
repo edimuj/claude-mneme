@@ -10,7 +10,7 @@
  */
 
 import { readFileSync, writeFileSync, existsSync } from 'fs';
-import { ensureMemoryDirs, loadConfig, getProjectName } from './utils.mjs';
+import { ensureMemoryDirs, loadConfig, getProjectName, formatEntriesForSummary } from './utils.mjs';
 
 const cwd = process.argv[2] || process.cwd();
 const paths = ensureMemoryDirs(cwd);
@@ -69,35 +69,40 @@ if (existsSync(paths.summary)) {
   existingSummary = readFileSync(paths.summary, 'utf-8').trim();
 }
 
-// Format entries for the prompt
-const entriesText = entriesToSummarize.map(line => {
-  try {
-    const entry = JSON.parse(line);
-    return `[${entry.ts}] (${entry.type}) ${entry.content}`;
-  } catch {
-    return line;
-  }
-}).join('\n');
+// Format entries grouped by day
+const entriesText = formatEntriesForSummary(entriesToSummarize);
 
 // Build summarization prompt
 const prompt = `You are updating a memory summary for a Claude Code assistant working on the project "${projectName}".
 
-Here is the existing summary:
+The summary serves as persistent memory across sessions — it tells the assistant what this project is, what decisions were made, and what work has been done.
+
 <existing_summary>
 ${existingSummary || '(No existing summary)'}
 </existing_summary>
 
-Here are new memory entries to incorporate:
+Here is new activity to incorporate, grouped by day:
 <new_entries>
 ${entriesText}
 </new_entries>
 
-Update the summary to incorporate the new information. Keep it concise and organized into these sections:
-- Project Context (what this project is about)
-- Key Decisions (important choices made)
-- Current State (where things stand)
+Entry types and their significance:
+- Commit: Code was committed — record what changed and why
+- Task completed: A tracked unit of work was finished
+- User/Assistant: Conversation context — extract decisions and intent, not the dialogue itself
+- Agent: A subagent completed work — note the outcome
 
-Remove outdated information. Keep the total summary under 500 words. Output only the updated markdown summary, starting with '# Claude Memory Summary'.`;
+Update the summary following these rules:
+1. Organize into sections: **Project Context**, **Key Decisions**, **Current State**, **Recent Work**
+2. Project Context: What this project is. Rarely changes.
+3. Key Decisions: Important architectural or design choices with reasoning. Remove superseded decisions.
+4. Current State: What's implemented, what's in progress, known issues.
+5. Recent Work: Brief log of what was done in the last few sessions. Older work should fold into Current State or be removed.
+6. Avoid implementation details like file paths, function names, or version numbers unless they represent a key decision.
+7. When multiple entries describe the same work, merge them into one point.
+8. Keep total under 500 words.
+
+Output only the updated markdown summary, starting with '# Claude Memory Summary'.`;
 
 // Run summarization using Agent SDK
 try {
