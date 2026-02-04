@@ -337,6 +337,16 @@ export function loadConfig() {
       maxAgeSeconds: 60                 // Cache validity in seconds
     },
 
+    // Sync server configuration (optional)
+    sync: {
+      enabled: false,                   // Local-only by default
+      serverUrl: null,                  // e.g., "http://localhost:3847"
+      apiKey: null,                     // Optional authentication
+      projectId: null,                  // Override auto-detected project name
+      timeoutMs: 10000,                 // Request timeout
+      retries: 3                        // Retry count on failure
+    },
+
     // Hierarchical context injection configuration
     contextInjection: {
       enabled: true,                    // Enable hierarchical injection

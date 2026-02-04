@@ -1,15 +1,30 @@
 #!/usr/bin/env node
 /**
  * Session Stop Hook
- * Flushes pending log entries and checks for summarization when session ends
+ * Flushes pending log entries, pushes to sync server, and checks for summarization
  */
 
-import { flushPendingLog } from './utils.mjs';
+import { flushPendingLog, loadConfig } from './utils.mjs';
+import { pushIfEnabled, stopHeartbeat } from './sync.mjs';
 
-const cwd = process.cwd();
+async function main() {
+  const cwd = process.cwd();
+  const config = loadConfig();
 
-// Flush all pending entries (throttle=0 forces immediate flush)
-// This also triggers maybeSummarize after merging
-flushPendingLog(cwd, 0);
+  // Stop the heartbeat interval
+  stopHeartbeat();
 
-process.exit(0);
+  // Flush all pending entries (throttle=0 forces immediate flush)
+  // This also triggers maybeSummarize after merging
+  flushPendingLog(cwd, 0);
+
+  // Sync: push files to server if enabled
+  await pushIfEnabled(cwd, config);
+}
+
+main()
+  .then(() => process.exit(0))
+  .catch(err => {
+    console.error(`[mneme] Error: ${err.message}`);
+    process.exit(1);
+  });

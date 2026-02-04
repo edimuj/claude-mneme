@@ -13,11 +13,12 @@
   <a href="#usage">Usage</a> •
   <a href="#configuration">Configuration</a> •
   <a href="#how-it-works">How It Works</a> •
+  <a href="#sync-server">Sync Server</a> •
   <a href="#changelog">Changelog</a>
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.4.0-blue" alt="Version">
+  <img src="https://img.shields.io/badge/version-2.5.0-blue" alt="Version">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
   <img src="https://img.shields.io/badge/node-%3E%3D18-brightgreen" alt="Node">
   <img src="https://img.shields.io/badge/claude--code-plugin-orange" alt="Claude Code Plugin">
@@ -38,6 +39,7 @@
 | ✨ **Smart Summarization** | Compresses old entries with Haiku when log grows |
 | 🔍 **Entity Indexing** | Tracks files, functions, errors for smarter context |
 | 📊 **Hierarchical Injection** | Prioritizes key decisions over low-signal entries |
+| 🔄 **Multi-Machine Sync** | Optional server to sync memory across machines |
 | ⚡ **Lightweight** | Non-blocking async hooks, minimal overhead |
 
 ## Installation
@@ -92,22 +94,39 @@ Look up what Mneme knows about a specific file, function, or entity:
 /entity handleLogin                  # Find references to a function
 ```
 
+### Manual Summarization with `/summarize`
+
+Force immediate summarization of the activity log:
+
+```bash
+/summarize                           # Summarize now
+/summarize --dry-run                 # Preview what would be summarized
+```
+
+> **Tip:** Summarization normally runs automatically at 50 entries. Use `/summarize` after busy sessions to compress the log immediately.
+
 ### Inspecting Memory Manually
 
 You can run the plugin scripts directly to see what would be injected:
 
 ```bash
 # See what gets injected at session start
-node ~/.claude/plugins/claude-mneme/scripts/session-start.mjs
+node ~/.claude/plugins/marketplaces/claude-mneme/plugin/scripts/session-start.mjs
 
 # List all indexed entities
-node ~/.claude/plugins/claude-mneme/scripts/mem-entity.mjs --list
+node ~/.claude/plugins/marketplaces/claude-mneme/plugin/scripts/mem-entity.mjs --list
 
 # Query a specific entity
-node ~/.claude/plugins/claude-mneme/scripts/mem-entity.mjs auth.ts
+node ~/.claude/plugins/marketplaces/claude-mneme/plugin/scripts/mem-entity.mjs auth.ts
 
 # List remembered items
-node ~/.claude/plugins/claude-mneme/scripts/mem-forget.mjs --list
+node ~/.claude/plugins/marketplaces/claude-mneme/plugin/scripts/mem-forget.mjs --list
+
+# Preview what would be summarized
+node ~/.claude/plugins/marketplaces/claude-mneme/plugin/scripts/mem-summarize.mjs --dry-run
+
+# Force manual summarization
+node ~/.claude/plugins/marketplaces/claude-mneme/plugin/scripts/mem-summarize.mjs
 ```
 
 > **Tip:** Run these from your project directory to see project-specific memory.
@@ -300,10 +319,145 @@ To reduce noise, Mneme automatically filters:
         └── .last-session          # Timestamp for git tracking
 ```
 
+## Sync Server
+
+Optionally sync memory across multiple machines using a self-hosted server.
+
+### Quick Start
+
+```bash
+# 1. Start the server (on your home network or a VPS)
+node server/mneme-server.mjs
+
+# 2. Enable sync in config (~/.claude-mneme/config.json)
+{
+  "sync": {
+    "enabled": true,
+    "serverUrl": "http://192.168.1.100:3847"
+  }
+}
+
+# 3. Restart Claude Code to pick up changes
+```
+
+### How It Works
+
+```
+Machine A                          Server                          Machine B
+    │                                │                                │
+    ├── Session Start ──────────────►│                                │
+    │   (acquire lock, pull)         │                                │
+    │                                │                                │
+    │   ... working ...              │   (locked by A)                │
+    │                                │                                │
+    │                                │◄────────── Session Start ──────┤
+    │                                │   (lock failed, local-only)    │
+    │                                │                                │
+    ├── Session End ────────────────►│                                │
+    │   (push, release lock)         │                                │
+    │                                │                                │
+    │                                │◄────────── Session Start ──────┤
+    │                                │   (acquire lock, pull changes) │
+```
+
+- **Lock-based concurrency**: One machine at a time per project
+- **Graceful fallback**: If server is unreachable or locked, continues with local memory
+- **Heartbeat keepalive**: Lock auto-extends during active sessions
+- **Selective sync**: Only syncs memory files, not temporary/cache files
+
+<details>
+<summary><strong>Sync Configuration</strong></summary>
+
+```json
+{
+  "sync": {
+    "enabled": false,
+    "serverUrl": null,
+    "apiKey": null,
+    "projectId": null,
+    "timeoutMs": 10000,
+    "retries": 3
+  }
+}
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `enabled` | `false` | Enable sync (local-only by default) |
+| `serverUrl` | `null` | Server URL (e.g., `http://192.168.1.100:3847`) |
+| `apiKey` | `null` | API key if server requires auth |
+| `projectId` | `null` | Override auto-detected project name |
+| `timeoutMs` | `10000` | Request timeout in milliseconds |
+
+</details>
+
+<details>
+<summary><strong>Server Configuration</strong></summary>
+
+Create `~/.mneme-server/config.json` on the server:
+
+```json
+{
+  "port": 3847,
+  "dataDir": "~/.mneme-server",
+  "apiKeys": ["your-secret-key"],
+  "lockTTLMinutes": 30
+}
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `port` | `3847` | Port to listen on |
+| `dataDir` | `~/.mneme-server` | Where to store project data |
+| `apiKeys` | `[]` | API keys for auth (empty = no auth) |
+| `lockTTLMinutes` | `30` | Lock expiration time |
+
+</details>
+
+<details>
+<summary><strong>Running as a Service</strong></summary>
+
+**systemd (Linux):**
+
+```ini
+# /etc/systemd/system/mneme-server.service
+[Unit]
+Description=Mneme Sync Server
+After=network.target
+
+[Service]
+Type=simple
+User=your-username
+ExecStart=/usr/bin/node /path/to/server/mneme-server.mjs
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl enable mneme-server
+sudo systemctl start mneme-server
+```
+
+**Docker:**
+
+```bash
+docker run -d -p 3847:3847 -v ~/.mneme-server:/root/.mneme-server \
+  node:20-alpine node /app/mneme-server.mjs
+```
+
+</details>
+
+> **Note:** For security, enable API keys for any non-localhost deployment and consider putting behind a reverse proxy (nginx, caddy) for HTTPS.
+
+See [`server/README.md`](server/README.md) for full documentation.
+
 ## Changelog
 
 | Version | Changes |
 |---------|---------|
+| **2.5.0** | Optional sync server for multi-machine memory sync |
 | **2.4.0** | Entity extraction, `/entity`, hierarchical injection, deduplication, outcome tracking, caching |
 | **2.3.0** | Relevance scoring, compaction hooks, incremental summarization, `/forget` |
 | **2.2.0** | Continuous summarization on every log write |
