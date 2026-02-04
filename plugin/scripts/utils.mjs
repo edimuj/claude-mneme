@@ -302,7 +302,9 @@ export function loadConfig() {
       // Minimum entity name length to index
       minEntityLength: 2,
       // Enable entity-based relevance boost
-      useInRelevanceScoring: true
+      useInRelevanceScoring: true,
+      // Remove entities not seen in this many days (0 = never prune)
+      maxAgeDays: 30
     },
 
     // Semantic deduplication configuration
@@ -368,14 +370,32 @@ export function loadConfig() {
     }
   };
 
+  let config = defaultConfig;
   if (existsSync(CONFIG_FILE)) {
     try {
-      return { ...defaultConfig, ...JSON.parse(readFileSync(CONFIG_FILE, 'utf-8')) };
+      config = { ...defaultConfig, ...JSON.parse(readFileSync(CONFIG_FILE, 'utf-8')) };
     } catch {
-      return defaultConfig;
+      // ignore parse errors, use defaults
     }
   }
-  return defaultConfig;
+
+  // Resolve claudePath to absolute path if it's a bare command name.
+  // The claude-agent-sdk requires an absolute path, not a PATH lookup.
+  if (config.claudePath && !config.claudePath.startsWith('/')) {
+    try {
+      const resolved = execFileSync('which', [config.claudePath], {
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore']
+      }).trim();
+      if (resolved) {
+        config.claudePath = resolved;
+      }
+    } catch {
+      // 'which' failed — keep original value, will fail later with a clear error
+    }
+  }
+
+  return config;
 }
 
 /**
@@ -1052,12 +1072,45 @@ export function updateEntityIndex(entry, cwd = process.cwd(), config = {}) {
 
   index.lastUpdated = new Date().toISOString();
 
+  // Prune stale entities (at most once per day)
+  pruneEntityIndex(index, eeConfig);
+
   // Write updated index
   try {
     writeFileSync(paths.entities, JSON.stringify(index, null, 2));
   } catch {
     // Silent fail
   }
+}
+
+/**
+ * Prune stale entities from the index.
+ * Removes entities whose lastSeen is older than maxAgeDays.
+ * Runs at most once per day (checks index.lastPruned).
+ * Mutates the index object in place.
+ */
+function pruneEntityIndex(index, eeConfig = {}) {
+  const maxAgeDays = eeConfig.maxAgeDays ?? 30;
+  if (maxAgeDays <= 0) return; // Pruning disabled
+
+  // Only prune once per day
+  if (index.lastPruned) {
+    const sincePrune = Date.now() - new Date(index.lastPruned).getTime();
+    if (sincePrune < 24 * 60 * 60 * 1000) return;
+  }
+
+  const cutoff = Date.now() - (maxAgeDays * 24 * 60 * 60 * 1000);
+
+  for (const category of ['files', 'functions', 'errors', 'packages']) {
+    if (!index[category]) continue;
+    for (const [name, data] of Object.entries(index[category])) {
+      if (!data.lastSeen || new Date(data.lastSeen).getTime() < cutoff) {
+        delete index[category][name];
+      }
+    }
+  }
+
+  index.lastPruned = new Date().toISOString();
 }
 
 /**

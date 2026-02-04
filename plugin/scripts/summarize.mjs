@@ -17,7 +17,8 @@ import {
   formatEntriesForSummary,
   emptyStructuredSummary,
   renderSummaryToMarkdown,
-  deduplicateEntries
+  deduplicateEntries,
+  logError
 } from './utils.mjs';
 
 const cwd = process.argv[2] || process.cwd();
@@ -130,6 +131,7 @@ Rules:
     }
   } catch (error) {
     console.error(`[claude-mneme] Migration error: ${error.message}`);
+    logError(error, 'summarize-migrate');
   }
 
   return null;
@@ -245,6 +247,7 @@ Rules:
     }
   } catch (error) {
     console.error(`[claude-mneme] Summarization error: ${error.message}`);
+    logError(error, 'summarize');
   }
 
   return null;
@@ -399,7 +402,7 @@ try {
 
     // Also write markdown version for backwards compatibility / human readability
     const markdown = renderSummaryToMarkdown(newSummary, projectName);
-    writeFileSync(paths.summary, markdown + '\n');
+    writeFileSync(paths.summary, markdown.full + '\n');
 
     // Trim the log
     writeFileSync(paths.log, entriesToKeep.join('\n') + (entriesToKeep.length ? '\n' : ''));

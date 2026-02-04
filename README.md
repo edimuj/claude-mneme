@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.5.0-blue" alt="Version">
+  <img src="https://img.shields.io/badge/version-2.5.1-blue" alt="Version">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
   <img src="https://img.shields.io/badge/node-%3E%3D18-brightgreen" alt="Node">
   <img src="https://img.shields.io/badge/claude--code-plugin-orange" alt="Claude Code Plugin">
@@ -493,6 +493,7 @@ See [`server/README.md`](server/README.md) for full documentation.
 
 | Version   | Changes                                                                                        |
 |-----------|------------------------------------------------------------------------------------------------|
+| **2.5.1** | Fix silent summarization failures, entity pruning, summary.md rendering fix                    |
 | **2.5.0** | Sync server, `/summarize`, `/status`, error logging                                            |
 | **2.4.0** | Entity extraction, `/entity`, hierarchical injection, deduplication, outcome tracking, caching |
 | **2.3.0** | Relevance scoring, compaction hooks, incremental summarization, `/forget`                      |
