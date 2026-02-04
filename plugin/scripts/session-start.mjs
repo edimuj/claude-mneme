@@ -12,7 +12,7 @@
 import { readFileSync, writeFileSync, existsSync, unlinkSync } from 'fs';
 import { execFileSync } from 'child_process';
 import { join } from 'path';
-import { ensureMemoryDirs, loadConfig, getProjectName, formatEntry, renderSummaryToMarkdown, flushPendingLog, scoreEntriesByRelevance, getRelevantEntities, deduplicateEntries, readCachedData } from './utils.mjs';
+import { ensureMemoryDirs, loadConfig, getProjectName, formatEntry, renderSummaryToMarkdown, flushPendingLog, scoreEntriesByRelevance, getRelevantEntities, deduplicateEntries, readCachedData, logError, getErrorsSince } from './utils.mjs';
 import { pullIfEnabled, startHeartbeat } from './sync.mjs';
 
 async function main() {
@@ -195,6 +195,12 @@ async function main() {
       recentEntries.forEach(entry => console.log(`- ${entry}`));
     }
 
+    // Check for recent errors and warn user
+    const recentErrors = getErrorsSince(24);
+    if (recentErrors.length > 0) {
+      console.log(`\n⚠️ **${recentErrors.length} error(s) in the last 24 hours.** Run \`/status\` to diagnose.`);
+    }
+
     console.log('\nTip: Use /remember to save key decisions, preferences, or project context for future sessions.');
     console.log('</claude-mneme>');
   }
@@ -203,6 +209,7 @@ async function main() {
 main()
   .then(() => process.exit(0))
   .catch(err => {
+    logError(err, 'session-start');
     console.error(`[mneme] Error: ${err.message}`);
     process.exit(1);
   });

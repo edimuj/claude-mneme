@@ -4,7 +4,7 @@
  * Flushes pending log entries, pushes to sync server, and checks for summarization
  */
 
-import { flushPendingLog, loadConfig } from './utils.mjs';
+import { flushPendingLog, loadConfig, logError } from './utils.mjs';
 import { pushIfEnabled, stopHeartbeat } from './sync.mjs';
 
 async function main() {
@@ -25,6 +25,7 @@ async function main() {
 main()
   .then(() => process.exit(0))
   .catch(err => {
+    logError(err, 'session-stop');
     console.error(`[mneme] Error: ${err.message}`);
     process.exit(1);
   });

@@ -20,7 +20,8 @@ import {
   emptyStructuredSummary,
   renderSummaryToMarkdown,
   deduplicateEntries,
-  flushPendingLog
+  flushPendingLog,
+  logError
 } from './utils.mjs';
 
 const cwd = process.cwd();
@@ -297,6 +298,7 @@ Rules:
   }));
 
 } catch (error) {
+  logError(error, 'summarize');
   console.log(JSON.stringify({
     project: projectName,
     status: 'error',

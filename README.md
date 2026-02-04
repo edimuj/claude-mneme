@@ -107,6 +107,17 @@ Force immediate summarization of the activity log:
 > **Tip:** Summarization normally runs automatically at 50 entries. Use `/summarize` after busy sessions to compress the
 > log immediately.
 
+### Health Check with `/status`
+
+Diagnose issues with the plugin:
+
+```bash
+/status                              # Run health check
+/status --clear-errors               # Clear the error log
+```
+
+Checks config, claude binary, directories, recent errors, and sync status. If errors occurred in the last 24 hours, a warning appears at session start.
+
 ### Inspecting Memory Manually
 
 You can run the plugin scripts directly to see what would be injected:
@@ -129,6 +140,9 @@ node ~/.claude/plugins/marketplaces/claude-mneme/plugin/scripts/mem-summarize.mj
 
 # Force manual summarization
 node ~/.claude/plugins/marketplaces/claude-mneme/plugin/scripts/mem-summarize.mjs
+
+# Run health check
+node ~/.claude/plugins/marketplaces/claude-mneme/plugin/scripts/mem-status.mjs
 ```
 
 > **Tip:** Run these from your project directory to see project-specific memory.
@@ -479,7 +493,7 @@ See [`server/README.md`](server/README.md) for full documentation.
 
 | Version   | Changes                                                                                        |
 |-----------|------------------------------------------------------------------------------------------------|
-| **2.5.0** | Optional sync server for multi-machine memory sync                                             |
+| **2.5.0** | Sync server, `/summarize`, `/status`, error logging                                            |
 | **2.4.0** | Entity extraction, `/entity`, hierarchical injection, deduplication, outcome tracking, caching |
 | **2.3.0** | Relevance scoring, compaction hooks, incremental summarization, `/forget`                      |
 | **2.2.0** | Continuous summarization on every log write                                                    |

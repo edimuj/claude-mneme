@@ -1519,3 +1519,127 @@ export function maybeSummarize(cwd = process.cwd()) {
     // Silent fail - don't block the calling script
   }
 }
+
+// ============================================================================
+// Error Logging
+// ============================================================================
+
+/**
+ * Get the path to the error log file
+ */
+export function getErrorLogPath() {
+  return join(MEMORY_BASE, 'errors.log');
+}
+
+/**
+ * Log an error to the error log file
+ * @param {Error|string} error - The error to log
+ * @param {string} context - Context about where the error occurred (e.g., 'session-start', 'sync')
+ */
+export function logError(error, context = 'unknown') {
+  try {
+    const errorLogPath = getErrorLogPath();
+    const timestamp = new Date().toISOString();
+    const message = error instanceof Error ? error.message : String(error);
+    const stack = error instanceof Error ? error.stack : null;
+
+    const entry = {
+      ts: timestamp,
+      context,
+      message,
+      stack: stack ? stack.split('\n').slice(1, 4).map(l => l.trim()).join(' | ') : null
+    };
+
+    // Ensure base directory exists
+    if (!existsSync(MEMORY_BASE)) {
+      mkdirSync(MEMORY_BASE, { recursive: true });
+    }
+
+    // Append to error log
+    appendFileSync(errorLogPath, JSON.stringify(entry) + '\n');
+
+    // Rotate log if it gets too large (keep last 100 errors)
+    rotateErrorLog(errorLogPath, 100);
+  } catch {
+    // Can't log the error - fail silently
+  }
+}
+
+/**
+ * Rotate error log to keep only the last N entries
+ */
+function rotateErrorLog(logPath, maxEntries) {
+  try {
+    if (!existsSync(logPath)) return;
+
+    const content = readFileSync(logPath, 'utf-8').trim();
+    if (!content) return;
+
+    const lines = content.split('\n').filter(l => l);
+    if (lines.length > maxEntries) {
+      const trimmed = lines.slice(-maxEntries).join('\n') + '\n';
+      writeFileSync(logPath, trimmed);
+    }
+  } catch {
+    // Ignore rotation errors
+  }
+}
+
+/**
+ * Get recent errors from the error log
+ * @param {number} maxCount - Maximum number of errors to return
+ * @returns {Array} Recent error entries
+ */
+export function getRecentErrors(maxCount = 10) {
+  try {
+    const errorLogPath = getErrorLogPath();
+    if (!existsSync(errorLogPath)) {
+      return [];
+    }
+
+    const content = readFileSync(errorLogPath, 'utf-8').trim();
+    if (!content) return [];
+
+    const lines = content.split('\n').filter(l => l);
+    const errors = lines
+      .map(line => {
+        try { return JSON.parse(line); }
+        catch { return null; }
+      })
+      .filter(Boolean);
+
+    return errors.slice(-maxCount).reverse(); // Most recent first
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Clear the error log
+ */
+export function clearErrorLog() {
+  try {
+    const errorLogPath = getErrorLogPath();
+    if (existsSync(errorLogPath)) {
+      writeFileSync(errorLogPath, '');
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Get errors from the last N hours
+ * @param {number} hours - Number of hours to look back
+ * @returns {Array} Errors within the time window
+ */
+export function getErrorsSince(hours = 24) {
+  const errors = getRecentErrors(100);
+  const cutoff = Date.now() - (hours * 60 * 60 * 1000);
+
+  return errors.filter(e => {
+    const errorTime = new Date(e.ts).getTime();
+    return errorTime >= cutoff;
+  });
+}

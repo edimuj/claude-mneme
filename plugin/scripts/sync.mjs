@@ -11,7 +11,7 @@ import { hostname } from 'os';
 import { randomUUID } from 'crypto';
 import http from 'http';
 import https from 'https';
-import { ensureMemoryDirs, getProjectName } from './utils.mjs';
+import { ensureMemoryDirs, getProjectName, logError } from './utils.mjs';
 
 // ============================================================================
 // Client ID Management
@@ -419,6 +419,7 @@ export async function pullIfEnabled(cwd, config) {
   const health = await client.checkHealth();
   if (!health.ok) {
     console.error(`[mneme-sync] Server unreachable, using local memory`);
+    logError(new Error(`Sync server unreachable: ${health.error || health.reason}`), 'sync-pull');
     return { synced: false, lockAcquired: false, message: 'Server unreachable' };
   }
 
@@ -473,6 +474,7 @@ export async function pullIfEnabled(cwd, config) {
           pulledFiles.push(name);
         } catch (err) {
           console.error(`[mneme-sync] Failed to write ${name}: ${err.message}`);
+          logError(err, 'sync-pull-write');
         }
       }
     }
@@ -510,6 +512,7 @@ export async function pushIfEnabled(cwd, config) {
   const health = await client.checkHealth();
   if (!health.ok) {
     console.error(`[mneme-sync] Server unreachable, changes saved locally only`);
+    logError(new Error('Sync server unreachable during push'), 'sync-push');
     return { pushed: false, files: [], message: 'Server unreachable' };
   }
 
