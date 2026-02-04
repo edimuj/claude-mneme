@@ -13,6 +13,7 @@
 
 import { readFileSync, writeFileSync, existsSync, unlinkSync } from 'fs';
 import {
+  ensureDeps,
   ensureMemoryDirs,
   loadConfig,
   getProjectName,
@@ -113,7 +114,8 @@ if (entryCount < minEntriesToSummarize) {
 writeFileSync(lockFile, Date.now().toString());
 
 try {
-  // Import the summarization functions dynamically
+  // Ensure SDK is installed, then import
+  ensureDeps();
   const { query } = await import('@anthropic-ai/claude-agent-sdk');
 
   // Read existing summary

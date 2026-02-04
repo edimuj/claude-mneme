@@ -15,7 +15,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
-import { ensureMemoryDirs, loadConfig, getProjectName, flushPendingLog, appendLogEntry } from './utils.mjs';
+import { ensureDeps, ensureMemoryDirs, loadConfig, getProjectName, flushPendingLog, appendLogEntry } from './utils.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -237,6 +237,7 @@ Output ONLY a JSON array of strings, each being a concise key point (max 100 cha
 Example: ["Decided to use TypeScript for type safety", "Fixed auth bug by adding token refresh"]`;
 
   try {
+    ensureDeps();
     const { query } = await import('@anthropic-ai/claude-agent-sdk');
 
     async function* messageGenerator() {

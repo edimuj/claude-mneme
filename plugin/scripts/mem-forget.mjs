@@ -9,7 +9,7 @@
  */
 
 import { readFileSync, writeFileSync, existsSync } from 'fs';
-import { ensureMemoryDirs, loadConfig, getProjectName } from './utils.mjs';
+import { ensureDeps, ensureMemoryDirs, loadConfig, getProjectName } from './utils.mjs';
 
 const cwd = process.cwd();
 const paths = ensureMemoryDirs(cwd);
@@ -141,6 +141,7 @@ Be conservative - only match items that clearly relate to what the user describe
 Return ONLY the JSON object, no other text.`;
 
   try {
+    ensureDeps();
     const { query: agentQuery } = await import('@anthropic-ai/claude-agent-sdk');
 
     async function* messageGenerator() {

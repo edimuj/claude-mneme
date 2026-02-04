@@ -1574,6 +1574,37 @@ export function maybeSummarize(cwd = process.cwd()) {
 }
 
 // ============================================================================
+// Dependency Management
+// ============================================================================
+
+/**
+ * Ensure npm dependencies are installed in the plugin directory.
+ * Checks for the SDK package and runs `npm install` if missing.
+ * @returns {boolean} true if deps are available, false if install failed
+ */
+export function ensureDeps() {
+  const __filename = fileURLToPath(import.meta.url);
+  const pluginRoot = join(dirname(__filename), '..');
+  const sdkPath = join(pluginRoot, 'node_modules', '@anthropic-ai', 'claude-agent-sdk');
+
+  if (existsSync(sdkPath)) {
+    return true;
+  }
+
+  try {
+    execFileSync('npm', ['install', '--omit=dev'], {
+      cwd: pluginRoot,
+      stdio: 'ignore',
+      timeout: 60000
+    });
+    return existsSync(sdkPath);
+  } catch (error) {
+    logError(error, 'ensureDeps');
+    return false;
+  }
+}
+
+// ============================================================================
 // Error Logging
 // ============================================================================
 

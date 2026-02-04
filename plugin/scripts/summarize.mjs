@@ -11,6 +11,7 @@
 
 import { readFileSync, writeFileSync, existsSync, unlinkSync } from 'fs';
 import {
+  ensureDeps,
   ensureMemoryDirs,
   loadConfig,
   getProjectName,
@@ -86,6 +87,7 @@ Rules:
 - Output ONLY the JSON object, no other text`;
 
   try {
+    ensureDeps();
     const { query } = await import('@anthropic-ai/claude-agent-sdk');
 
     async function* messageGenerator() {
@@ -204,6 +206,7 @@ Rules:
 - Output ONLY the JSON object`;
 
   try {
+    ensureDeps();
     const { query } = await import('@anthropic-ai/claude-agent-sdk');
 
     async function* messageGenerator() {
