@@ -14,11 +14,11 @@
   <a href="#configuration">Configuration</a> •
   <a href="#how-it-works">How It Works</a> •
   <a href="#sync-server">Sync Server</a> •
-  <a href="#changelog">Changelog</a>
+  <a href="#related-projects">Related Projects</a>
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.5.1-blue" alt="Version">
+  <img src="https://img.shields.io/badge/version-2.5.2-blue" alt="Version">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
   <img src="https://img.shields.io/badge/node-%3E%3D18-brightgreen" alt="Node">
   <img src="https://img.shields.io/badge/claude--code-plugin-orange" alt="Claude Code Plugin">
@@ -489,34 +489,14 @@ docker run -d -p 3847:3847 -v ~/.mneme-server:/root/.mneme-server \
 
 See [`server/README.md`](server/README.md) for full documentation.
 
-## Changelog
-
-| Version   | Changes                                                                                        |
-|-----------|------------------------------------------------------------------------------------------------|
-| **2.5.1** | Fix silent summarization failures, entity pruning, summary.md rendering fix                    |
-| **2.5.0** | Sync server, `/summarize`, `/status`, error logging                                            |
-| **2.4.0** | Entity extraction, `/entity`, hierarchical injection, deduplication, outcome tracking, caching |
-| **2.3.0** | Relevance scoring, compaction hooks, incremental summarization, `/forget`                      |
-| **2.2.0** | Continuous summarization on every log write                                                    |
-| **2.1.0** | TaskCreate/TaskUpdate hooks, SubagentStop capture                                              |
-| **2.0.0** | Renamed to claude-mneme, response-based capture                                                |
-
-<details>
-<summary>Earlier versions</summary>
-
-| Version   | Changes                                  |
-|-----------|------------------------------------------|
-| **1.3.0** | UserPromptSubmit hook, TodoWrite capture |
-| **1.2.0** | Initial release                          |
-
-</details>
-
 ## Related Projects
 
 Other tools for enhancing Claude Code:
 
 | Project | Description |
 |---------|-------------|
+| [claude-workshop](https://github.com/edimuj/claude-workshop) | A collection of useful plugins and tools for Claude Code |
+| [vexscan](https://github.com/edimuj/vexscan) | Security scanner for AI agent plugins, skills, MCPs, and configurations |
 | [claude-simple-status](https://github.com/edimuj/claude-simple-status) | Minimal statusline showing active model, context usage, and quota indicators |
 | [tokenlean](https://github.com/edimuj/tokenlean) | CLI toolkit with 32+ commands for examining codebases while minimizing token usage |
 
