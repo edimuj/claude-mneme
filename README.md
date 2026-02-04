@@ -528,7 +528,3 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 [MIT](LICENSE) © [Edin Mujkanovic](https://github.com/edimuj)
 
 ---
-
-<p align="center">
-  <sub>Built with Claude Code</sub>
-</p>
