@@ -6,8 +6,7 @@
  * Only logs prompts that are substantial (>20 chars) and not just commands
  */
 
-import { appendFileSync } from 'fs';
-import { ensureMemoryDirs, maybeSummarize } from './utils.mjs';
+import { ensureMemoryDirs, appendLogEntry } from './utils.mjs';
 
 // Read hook input from stdin
 let input = '';
@@ -57,9 +56,6 @@ function processPrompt(hookData) {
     return;
   }
 
-  // Get project-specific paths
-  const paths = ensureMemoryDirs(cwd || process.cwd());
-
   // Truncate very long prompts to first 500 chars
   const content = trimmedPrompt.length > 500
     ? trimmedPrompt.substring(0, 500) + '...'
@@ -71,11 +67,7 @@ function processPrompt(hookData) {
     content
   };
 
-  appendFileSync(paths.log, JSON.stringify(entry) + '\n');
-
-  // Check if summarization is needed
-  maybeSummarize(cwd || process.cwd());
-
+  appendLogEntry(entry, cwd || process.cwd());
   process.exit(0);
 }
 

@@ -1,45 +1,44 @@
-# Claude Mneme
+<p align="center">
+  <img src="assets/claude-mneme-mascot-200.png" alt="Claude Mneme Mascot" width="150">
+</p>
 
-> *Mneme (Greek: Μνήμη) - the muse of memory in Greek mythology*
+<h1 align="center">Claude Mneme</h1>
 
-**Persistent memory system for Claude Code** - automatically remembers context across sessions so Claude can pick up where you left off.
+<p align="center">
+  <em>Persistent memory for Claude Code — remember context across sessions</em>
+</p>
+
+<p align="center">
+  <a href="#installation">Installation</a> •
+  <a href="#usage">Usage</a> •
+  <a href="#configuration">Configuration</a> •
+  <a href="#how-it-works">How It Works</a> •
+  <a href="#changelog">Changelog</a>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/version-2.4.0-blue" alt="Version">
+  <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
+  <img src="https://img.shields.io/badge/node-%3E%3D18-brightgreen" alt="Node">
+  <img src="https://img.shields.io/badge/claude--code-plugin-orange" alt="Claude Code Plugin">
+</p>
+
+---
+
+> *Mneme (Greek: Μνήμη) — the muse of memory in Greek mythology*
+
+**Claude Mneme** automatically captures your coding sessions — prompts, tasks, commits, and responses — and injects relevant context into new sessions so Claude can pick up where you left off.
 
 ## Features
 
-- **Automatic Context Capture** - Silently logs user prompts, task progress, git commits, and assistant responses
-- **Subagent Tracking** - Captures summaries from specialized agents when they complete tasks
-- **Smart Summarization** - Uses Haiku to compress old entries when the log grows too large
-- **Project-Aware** - Maintains separate memory for each project you work on
-- **Zero Configuration** - Works out of the box with sensible defaults
-- **Lightweight** - Minimal overhead, non-blocking hooks
-
-## How It Works
-
-Claude Mneme uses Claude Code's hook system to capture context at key moments:
-
-| Hook | What It Captures |
-|------|-----------------|
-| **SessionStart** | Injects memory summary, git changes since last session, and recent entries |
-| **UserPromptSubmit** | Your prompts and questions |
-| **PostToolUse** | Task progress (TaskCreate, TaskUpdate, TodoWrite) and git commits |
-| **SubagentStop** | Summaries from specialized agents (explore, test-runner, etc.) |
-| **Stop** | Assistant's final response summary |
-
-When your log reaches 50 entries, Mneme automatically summarizes the older entries using Haiku, keeping the 10 most recent for quick context. Summarization is checked after every log write, so you don't have to wait for session end.
-
-## Entry Types
-
-| Type | Source | Description |
-|------|--------|-------------|
-| `prompt` | UserPromptSubmit | User requests and questions |
-| `task` | TaskCreate, TaskUpdate, TodoWrite | Current work focus and progress |
-| `commit` | Bash (git commit) | Git commit messages |
-| `agent` | SubagentStop | Specialized agent completion summaries |
-| `response` | Stop | Assistant's summarized response |
-| `preference` | /remember | User preferences (coding style, tools) |
-| `project` | /remember | Project information and status |
-| `fact` | /remember | Facts about user or environment |
-| `note` | /remember | General notes |
+| | |
+|---|---|
+| 🧠 **Automatic Capture** | Silently logs prompts, tasks, commits, and responses |
+| 📦 **Project-Aware** | Separate memory per project, auto-detected from git |
+| ✨ **Smart Summarization** | Compresses old entries with Haiku when log grows |
+| 🔍 **Entity Indexing** | Tracks files, functions, errors for smarter context |
+| 📊 **Hierarchical Injection** | Prioritizes key decisions over low-signal entries |
+| ⚡ **Lightweight** | Non-blocking async hooks, minimal overhead |
 
 ## Installation
 
@@ -51,92 +50,286 @@ claude plugin marketplace add edimuj/claude-mneme
 claude plugin install claude-mneme@claude-mneme
 ```
 
-## Manual Memory with /remember
+## Usage
 
-Use the `/remember` command to manually save memories:
+### Automatic Memory
+
+Once installed, Mneme works automatically. Start a new session and you'll see injected context:
 
 ```
+SessionStart: claude-mneme project="my-app"
+# Claude Memory Summary
+...recent activity and decisions...
+```
+
+### Manual Memory with `/remember`
+
+Save important context that should persist permanently:
+
+```bash
 /remember I prefer TypeScript over JavaScript
 /remember The auth system uses JWT tokens stored in Redis
-/remember Working on a React Native app called GhostTube
+/remember This project uses pnpm, not npm
 ```
 
-Types are automatically inferred, or you can be explicit about preferences, project info, facts, or notes.
+> **Tip:** Remembered items are never auto-summarized — they persist until you remove them.
 
-## Memory Storage
+### Removing Memories with `/forget`
 
+Remove remembered items when they're no longer relevant:
+
+```bash
+/forget my preference about tabs     # AI finds matching entries
+/forget                              # Lists all entries to choose from
 ```
-~/.claude-mneme/
-├── config.json                    # Global settings
-└── projects/
-    ├── my-project/
-    │   ├── log.jsonl              # Recent memory entries
-    │   ├── summary.md             # AI-generated summary
-    │   ├── remembered.json        # Persistent /remember entries
-    │   └── .last-session          # Timestamp for git changes tracking
-    └── another-project/
-        ├── log.jsonl
-        ├── summary.md
-        ├── remembered.json
-        └── .last-session
+
+### Querying Memory with `/entity`
+
+Look up what Mneme knows about a specific file, function, or entity:
+
+```bash
+/entity auth.ts                      # What do we know about auth.ts?
+/entity handleLogin                  # Find references to a function
 ```
+
+### Inspecting Memory Manually
+
+You can run the plugin scripts directly to see what would be injected:
+
+```bash
+# See what gets injected at session start
+node ~/.claude/plugins/claude-mneme/scripts/session-start.mjs
+
+# List all indexed entities
+node ~/.claude/plugins/claude-mneme/scripts/mem-entity.mjs --list
+
+# Query a specific entity
+node ~/.claude/plugins/claude-mneme/scripts/mem-entity.mjs auth.ts
+
+# List remembered items
+node ~/.claude/plugins/claude-mneme/scripts/mem-forget.mjs --list
+```
+
+> **Tip:** Run these from your project directory to see project-specific memory.
 
 ## Configuration
 
-Edit `~/.claude-mneme/config.json`:
+Edit `~/.claude-mneme/config.json` to customize behavior:
 
 ```json
 {
   "maxLogEntriesBeforeSummarize": 50,
   "keepRecentEntries": 10,
-  "maxResponseLength": 1000,
-  "summarizeResponses": true,
-  "maxSummarySentences": 4,
   "model": "haiku"
 }
 ```
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `maxLogEntriesBeforeSummarize` | 50 | Trigger summarization when log reaches this size |
-| `keepRecentEntries` | 10 | Number of recent entries to keep after summarization |
-| `maxResponseLength` | 1000 | Maximum characters for captured responses |
-| `summarizeResponses` | true | Enable extractive summarization of responses |
-| `maxSummarySentences` | 4 | Max sentences to keep from each response |
-| `model` | haiku | Model alias used for summarization (haiku, sonnet, opus) |
+<details>
+<summary><strong>Core Settings</strong></summary>
 
-## What Gets Filtered Out
+| Option | Default | Description |
+|--------|---------|-------------|
+| `maxLogEntriesBeforeSummarize` | `50` | Trigger summarization at this log size |
+| `keepRecentEntries` | `10` | Recent entries to keep after summarization |
+| `model` | `haiku` | Model for summarization (`haiku`, `sonnet`, `opus`) |
+| `maxResponseLength` | `1000` | Max characters for captured responses |
 
-To keep memory relevant, Mneme automatically filters:
+</details>
 
-- Very short prompts (<20 characters)
-- Simple confirmations ("yes", "ok", "continue")
+<details>
+<summary><strong>Context Injection Settings</strong></summary>
+
+Control what gets injected at session start:
+
+```json
+{
+  "contextInjection": {
+    "sections": {
+      "projectContext": { "enabled": true },
+      "keyDecisions": { "enabled": true, "maxItems": 10 },
+      "currentState": { "enabled": true, "maxItems": 10 },
+      "recentWork": { "enabled": true, "maxItems": 5, "maxAgeDays": 7 },
+      "recentEntries": { "enabled": true, "maxItems": 4 }
+    }
+  }
+}
+```
+
+| Section | Priority | Default Items |
+|---------|----------|---------------|
+| `projectContext` | High | Always shown |
+| `keyDecisions` | High | Last 10 |
+| `currentState` | High | Last 10 |
+| `recentWork` | Medium | Last 5 (within 7 days) |
+| `recentEntries` | Low | Last 4 |
+
+</details>
+
+<details>
+<summary><strong>Deduplication Settings</strong></summary>
+
+Group related entries and keep highest-signal:
+
+```json
+{
+  "deduplication": {
+    "enabled": true,
+    "timeWindowMinutes": 5
+  }
+}
+```
+
+When you work on something, multiple entries are created (prompt → task → commit). Deduplication groups entries within the time window and keeps only the most important one.
+
+</details>
+
+<details>
+<summary><strong>Entity Extraction Settings</strong></summary>
+
+Track files, functions, and errors:
+
+```json
+{
+  "entityExtraction": {
+    "enabled": true,
+    "categories": {
+      "files": true,
+      "functions": true,
+      "errors": true,
+      "packages": true
+    }
+  }
+}
+```
+
+</details>
+
+## How It Works
+
+Mneme uses Claude Code's hook system to capture context at key moments:
+
+```
+SessionStart     → Injects memory context (hierarchical)
+UserPromptSubmit → Captures your prompts (filtered for noise)
+PostToolUse      → Captures task progress and git commits
+SubagentStop     → Captures agent completion summaries
+Stop             → Captures assistant's final response
+```
+
+### What Gets Injected
+
+At session start, Mneme injects context in priority order:
+
+```
+<claude-mneme project="my-app">
+┌─────────────────────────────────────────────┐
+│  HIGH PRIORITY (always shown)               │
+├─────────────────────────────────────────────┤
+│  ## Project Context                         │
+│  What this project is about                 │
+│                                             │
+│  ## Key Decisions                           │
+│  - Architecture choices                     │
+│  - Technology selections                    │
+│                                             │
+│  ## Current State                           │
+│  - What's implemented                       │
+│  - What's in progress                       │
+│                                             │
+│  ## Remembered                              │
+│  - Your /remember items                     │
+├─────────────────────────────────────────────┤
+│  MEDIUM PRIORITY (if recent/relevant)       │
+├─────────────────────────────────────────────┤
+│  ## Recent Work                             │
+│  - Last 7 days of activity                  │
+│                                             │
+│  ## Changes Since Last Session              │
+│  - Git commits since you left               │
+│                                             │
+│  ## Recently Active                         │
+│  - Hot files and functions                  │
+├─────────────────────────────────────────────┤
+│  LOW PRIORITY (minimal)                     │
+├─────────────────────────────────────────────┤
+│  ## Recent Activity                         │
+│  - Last 4 deduplicated entries              │
+└─────────────────────────────────────────────┘
+</claude-mneme>
+```
+
+### What Gets Captured
+
+| Type | Source | Description |
+|------|--------|-------------|
+| `prompt` | UserPromptSubmit | Your requests and questions |
+| `task` | TaskCreate/Update | Work focus and progress (with outcome) |
+| `commit` | Bash (git) | Git commit messages |
+| `agent` | SubagentStop | Agent completion summaries |
+| `response` | Stop | Assistant's summarized response |
+
+### Smart Processing
+
+Before injection, entries are processed:
+
+1. **Deduplication** — Groups related entries (prompt → task → commit) and keeps highest-signal
+2. **Relevance scoring** — Ranks by recency, file relevance, and entry type
+3. **Outcome tracking** — Completed tasks rank higher than abandoned ones
+4. **Entity extraction** — Indexes files, functions, errors for smarter context
+
+### What Gets Filtered
+
+To reduce noise, Mneme automatically filters:
+- Short prompts (<20 chars)
+- Confirmations ("yes", "ok", "continue")
 - Slash commands
 - Duplicate task updates
 
-## Requirements
+### Storage Structure
 
-- Claude Code CLI
-- Node.js 18+
+```
+~/.claude-mneme/
+├── config.json                    # Global settings
+└── projects/
+    └── my-project/
+        ├── log.jsonl              # Recent memory entries
+        ├── summary.json           # AI-generated structured summary
+        ├── remembered.json        # Persistent /remember entries
+        ├── entities.json          # Indexed entities (files, functions)
+        ├── .cache.json            # Parsed data cache
+        └── .last-session          # Timestamp for git tracking
+```
 
-## Version History
+## Changelog
 
-- **2.3.0** - Git changes since last session in injection, 24h timestamps, async logging hooks, response filtering, task tracking cleanup
-- **2.2.0** - Summarization now triggers on every log write instead of only at session end
-- **2.1.0** - Added TaskCreate/TaskUpdate hooks for new task tools, SubagentStop capture
-- **2.0.0** - Renamed to claude-mneme, refactored to capture assistant responses instead of tool-level noise
-- **1.3.0** - Added UserPromptSubmit hook and TodoWrite capture for richer context
-- **1.2.0** - Initial release with SessionStart, PostToolUse, Stop hooks
+| Version | Changes |
+|---------|---------|
+| **2.4.0** | Entity extraction, `/entity`, hierarchical injection, deduplication, outcome tracking, caching |
+| **2.3.0** | Relevance scoring, compaction hooks, incremental summarization, `/forget` |
+| **2.2.0** | Continuous summarization on every log write |
+| **2.1.0** | TaskCreate/TaskUpdate hooks, SubagentStop capture |
+| **2.0.0** | Renamed to claude-mneme, response-based capture |
+
+<details>
+<summary>Earlier versions</summary>
+
+| Version | Changes |
+|---------|---------|
+| **1.3.0** | UserPromptSubmit hook, TodoWrite capture |
+| **1.2.0** | Initial release |
+
+</details>
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-MIT License - see [LICENSE](LICENSE)
-
-## Authors
-
-- **Edin Mujkanovic** ([@edimuj](https://github.com/edimuj))
-- **Claude** ([Anthropic](https://claude.ai))
+[MIT](LICENSE) © [Edin Mujkanovic](https://github.com/edimuj)
 
 ---
 
-*Built with Claude Code*
+<p align="center">
+  <sub>Built with Claude Code</sub>
+</p>

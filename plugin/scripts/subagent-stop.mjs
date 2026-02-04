@@ -7,8 +7,8 @@
  * Note: Claude Code passes transcript_path (file path), not direct output
  */
 
-import { appendFileSync, readFileSync, existsSync } from 'fs';
-import { ensureMemoryDirs, loadConfig, maybeSummarize, extractiveSummarize } from './utils.mjs';
+import { readFileSync, existsSync } from 'fs';
+import { ensureMemoryDirs, loadConfig, appendLogEntry, extractiveSummarize } from './utils.mjs';
 
 // Read hook input from stdin
 let input = '';
@@ -80,23 +80,29 @@ function extractTextContent(content) {
 /**
  * Check if a very recent response entry already covers the same content.
  * Prevents duplicate logging when both stop-capture and subagent-stop fire.
+ * Checks both main log and pending file.
  */
 function isDuplicateOfRecentResponse(content, logPath) {
-  if (!existsSync(logPath)) return false;
-  try {
-    const lines = readFileSync(logPath, 'utf-8').trim().split('\n');
-    const now = Date.now();
-    for (const line of lines.slice(-3)) {
-      const entry = JSON.parse(line);
-      if (entry.type === 'response' && (now - new Date(entry.ts).getTime()) < 30000) {
-        const a = content.substring(0, 100).toLowerCase();
-        const b = (entry.content || '').substring(0, 100).toLowerCase();
-        if (a === b || a.startsWith(b) || b.startsWith(a)) {
-          return true;
+  const pendingPath = logPath.replace('.jsonl', '.pending.jsonl');
+  const filesToCheck = [logPath, pendingPath].filter(f => existsSync(f));
+
+  const now = Date.now();
+  for (const filePath of filesToCheck) {
+    try {
+      const lines = readFileSync(filePath, 'utf-8').trim().split('\n');
+      for (const line of lines.slice(-3)) {
+        if (!line) continue;
+        const entry = JSON.parse(line);
+        if (entry.type === 'response' && (now - new Date(entry.ts).getTime()) < 30000) {
+          const a = content.substring(0, 100).toLowerCase();
+          const b = (entry.content || '').substring(0, 100).toLowerCase();
+          if (a === b || a.startsWith(b) || b.startsWith(a)) {
+            return true;
+          }
         }
       }
-    }
-  } catch {}
+    } catch {}
+  }
   return false;
 }
 
@@ -162,9 +168,7 @@ function processSubagentStop(hookData) {
     content
   };
 
-  appendFileSync(paths.log, JSON.stringify(entry) + '\n');
-  maybeSummarize(cwd || process.cwd());
-
+  appendLogEntry(entry, cwd || process.cwd());
   process.exit(0);
 }
 

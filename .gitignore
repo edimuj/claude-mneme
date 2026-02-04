@@ -22,3 +22,6 @@ yarn-error.log*
 # Environment
 .env
 .env.local
+
+# Project-specific Claude instructions (may contain user-specific tools)
+plugin/CLAUDE.md

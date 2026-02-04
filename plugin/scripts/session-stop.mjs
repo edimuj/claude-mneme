@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 /**
  * Session Stop Hook
- * Final check for summarization when session ends
- * Acts as a fallback in case summarization wasn't triggered during the session
+ * Flushes pending log entries and checks for summarization when session ends
  */
 
-import { maybeSummarize } from './utils.mjs';
+import { flushPendingLog } from './utils.mjs';
 
 const cwd = process.cwd();
 
-// Run summarization check (will only run if threshold exceeded)
-maybeSummarize(cwd);
+// Flush all pending entries (throttle=0 forces immediate flush)
+// This also triggers maybeSummarize after merging
+flushPendingLog(cwd, 0);
 
 process.exit(0);

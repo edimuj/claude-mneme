@@ -5,9 +5,9 @@
  * and commit messages from Bash git commits
  */
 
-import { appendFileSync, readFileSync, writeFileSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { join } from 'path';
-import { ensureMemoryDirs, maybeSummarize } from './utils.mjs';
+import { ensureMemoryDirs, appendLogEntry } from './utils.mjs';
 
 // Track last logged todos to avoid duplicates
 let lastTodoHash = '';
@@ -106,33 +106,39 @@ function processTodoWrite(hookData) {
     return false;
   }
 
-  // Get project-specific paths
-  const paths = ensureMemoryDirs(cwd || process.cwd());
-
   const entry = {
     ts: new Date().toISOString(),
     type: 'task',
     content: parts.join(' ')
   };
 
-  appendFileSync(paths.log, JSON.stringify(entry) + '\n');
-  maybeSummarize(cwd || process.cwd());
+  appendLogEntry(entry, cwd || process.cwd());
   return true;
 }
 
 /**
  * Read the task subject tracking file
+ * Enhanced to track full task lifecycle for outcome tracking
  */
 function readTaskTracking(projectDir) {
   const trackingPath = join(projectDir, 'active-tasks.json');
   if (existsSync(trackingPath)) {
     try {
-      return JSON.parse(readFileSync(trackingPath, 'utf-8'));
+      const data = JSON.parse(readFileSync(trackingPath, 'utf-8'));
+      // Migrate old format (simple subjects) to new format (task objects)
+      if (data.subjects && typeof Object.values(data.subjects)[0] === 'string') {
+        const migrated = { nextId: data.nextId, tasks: {} };
+        for (const [id, subject] of Object.entries(data.subjects)) {
+          migrated.tasks[id] = { subject, status: 'pending', createdAt: null };
+        }
+        return migrated;
+      }
+      return data;
     } catch {
-      return { nextId: 1, subjects: {} };
+      return { nextId: 1, tasks: {} };
     }
   }
-  return { nextId: 1, subjects: {} };
+  return { nextId: 1, tasks: {} };
 }
 
 /**
@@ -145,7 +151,7 @@ function writeTaskTracking(projectDir, tracking) {
 
 /**
  * Process TaskCreate tool usage
- * Stores the subject in a tracking file so TaskUpdate completions can reference it
+ * Stores the task with metadata for outcome tracking
  */
 function processTaskCreate(hookData) {
   const { tool_input, cwd } = hookData;
@@ -158,8 +164,13 @@ function processTaskCreate(hookData) {
   const paths = ensureMemoryDirs(cwd || process.cwd());
   const tracking = readTaskTracking(paths.project);
 
-  // Store subject keyed by sequential ID (matches Claude Code's 1-based task IDs)
-  tracking.subjects[String(tracking.nextId)] = subject;
+  // Store task with lifecycle metadata
+  tracking.tasks = tracking.tasks || {};
+  tracking.tasks[String(tracking.nextId)] = {
+    subject,
+    status: 'pending',
+    createdAt: new Date().toISOString()
+  };
   tracking.nextId++;
 
   writeTaskTracking(paths.project, tracking);
@@ -168,7 +179,7 @@ function processTaskCreate(hookData) {
 
 /**
  * Process TaskUpdate tool usage
- * Only logs completions — resolves subject from tracking file
+ * Tracks task lifecycle and logs meaningful state changes with outcomes
  */
 function processTaskUpdate(hookData) {
   const { tool_input, cwd } = hookData;
@@ -180,39 +191,74 @@ function processTaskUpdate(hookData) {
 
   const paths = ensureMemoryDirs(cwd || process.cwd());
   const tracking = readTaskTracking(paths.project);
+  tracking.tasks = tracking.tasks || {};
 
-  // Clean up deleted tasks from tracking
+  const task = tracking.tasks[String(taskId)];
+
+  // Handle deleted tasks - log as abandoned if was in progress
   if (status === 'deleted') {
-    delete tracking.subjects[String(taskId)];
+    if (task && task.status === 'in_progress') {
+      // Task was abandoned (deleted while in progress)
+      const entry = {
+        ts: new Date().toISOString(),
+        type: 'task',
+        action: 'abandoned',
+        outcome: 'abandoned',
+        subject: task.subject,
+        duration: task.createdAt ? Date.now() - new Date(task.createdAt).getTime() : null
+      };
+      appendLogEntry(entry, cwd || process.cwd());
+    }
+    delete tracking.tasks[String(taskId)];
     writeTaskTracking(paths.project, tracking);
-    return false;
+    return task?.status === 'in_progress'; // Return true if we logged abandonment
   }
 
-  // Only log completions
-  if (status !== 'completed') {
-    return false;
+  // Update task status
+  if (task) {
+    const previousStatus = task.status;
+    task.status = status;
+
+    // Track when task started
+    if (status === 'in_progress' && !task.startedAt) {
+      task.startedAt = new Date().toISOString();
+    }
+
+    writeTaskTracking(paths.project, tracking);
+
+    // Log completion with outcome
+    if (status === 'completed') {
+      const resolvedSubject = subject || task.subject;
+      if (!resolvedSubject) return false;
+
+      const entry = {
+        ts: new Date().toISOString(),
+        type: 'task',
+        action: 'completed',
+        outcome: 'completed',
+        subject: resolvedSubject,
+        duration: task.startedAt ? Date.now() - new Date(task.startedAt).getTime() : null
+      };
+
+      // Clean up completed task
+      delete tracking.tasks[String(taskId)];
+      writeTaskTracking(paths.project, tracking);
+
+      appendLogEntry(entry, cwd || process.cwd());
+      return true;
+    }
+  } else {
+    // Task not in tracking - create it
+    tracking.tasks[String(taskId)] = {
+      subject: subject || `Task ${taskId}`,
+      status: status || 'pending',
+      createdAt: new Date().toISOString(),
+      startedAt: status === 'in_progress' ? new Date().toISOString() : null
+    };
+    writeTaskTracking(paths.project, tracking);
   }
 
-  // Resolve subject: prefer explicit subject, fall back to tracked subject
-  const resolvedSubject = subject || tracking.subjects[String(taskId)];
-  if (!resolvedSubject) {
-    return false;
-  }
-
-  // Clean up tracked task
-  delete tracking.subjects[String(taskId)];
-  writeTaskTracking(paths.project, tracking);
-
-  const entry = {
-    ts: new Date().toISOString(),
-    type: 'task',
-    action: 'completed',
-    subject: resolvedSubject
-  };
-
-  appendFileSync(paths.log, JSON.stringify(entry) + '\n');
-  maybeSummarize(cwd || process.cwd());
-  return true;
+  return false;
 }
 
 /**
@@ -247,17 +293,13 @@ function processBash(hookData) {
     message = message.substring(0, 200) + '...';
   }
 
-  // Get project-specific paths
-  const paths = ensureMemoryDirs(cwd || process.cwd());
-
   const entry = {
     ts: new Date().toISOString(),
     type: 'commit',
     content: message
   };
 
-  appendFileSync(paths.log, JSON.stringify(entry) + '\n');
-  maybeSummarize(cwd || process.cwd());
+  appendLogEntry(entry, cwd || process.cwd());
   return true;
 }
 

@@ -12,8 +12,8 @@
  * Runs before session-stop.mjs (summarization)
  */
 
-import { appendFileSync, readFileSync, existsSync } from 'fs';
-import { ensureMemoryDirs, loadConfig, maybeSummarize, extractiveSummarize } from './utils.mjs';
+import { readFileSync, existsSync } from 'fs';
+import { ensureMemoryDirs, loadConfig, appendLogEntry, extractiveSummarize } from './utils.mjs';
 
 // Read hook input from stdin
 let input = '';
@@ -135,20 +135,13 @@ function processStop(hookData) {
     processed = processed.substring(0, config.maxResponseLength) + '...';
   }
 
-  // Get project-specific paths
-  const paths = ensureMemoryDirs(cwd || process.cwd());
-
   const entry = {
     ts: new Date().toISOString(),
     type: 'response',
     content: processed
   };
 
-  appendFileSync(paths.log, JSON.stringify(entry) + '\n');
-
-  // Check if summarization is needed
-  maybeSummarize(cwd || process.cwd());
-
+  appendLogEntry(entry, cwd || process.cwd());
   process.exit(0);
 }
 
