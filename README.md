@@ -28,19 +28,20 @@
 
 > *Mneme (Greek: Μνήμη) — the muse of memory in Greek mythology*
 
-**Claude Mneme** automatically captures your coding sessions — prompts, tasks, commits, and responses — and injects relevant context into new sessions so Claude can pick up where you left off.
+**Claude Mneme** automatically captures your coding sessions — prompts, tasks, commits, and responses — and injects
+relevant context into new sessions so Claude can pick up where you left off.
 
 ## Features
 
-| | |
-|---|---|
-| 🧠 **Automatic Capture** | Silently logs prompts, tasks, commits, and responses |
-| 📦 **Project-Aware** | Separate memory per project, auto-detected from git |
-| ✨ **Smart Summarization** | Compresses old entries with Haiku when log grows |
-| 🔍 **Entity Indexing** | Tracks files, functions, errors for smarter context |
-| 📊 **Hierarchical Injection** | Prioritizes key decisions over low-signal entries |
-| 🔄 **Multi-Machine Sync** | Optional server to sync memory across machines |
-| ⚡ **Lightweight** | Non-blocking async hooks, minimal overhead |
+|                               |                                                      |
+|-------------------------------|------------------------------------------------------|
+| 🧠 **Automatic Capture**      | Silently logs prompts, tasks, commits, and responses |
+| 📦 **Project-Aware**          | Separate memory per project, auto-detected from git  |
+| ✨ **Smart Summarization**     | Compresses old entries with Haiku when log grows     |
+| 🔍 **Entity Indexing**        | Tracks files, functions, errors for smarter context  |
+| 📊 **Hierarchical Injection** | Prioritizes key decisions over low-signal entries    |
+| 🔄 **Multi-Machine Sync**     | Optional server to sync memory across machines       |
+| ⚡ **Lightweight**             | Non-blocking async hooks, minimal overhead           |
 
 ## Installation
 
@@ -103,7 +104,8 @@ Force immediate summarization of the activity log:
 /summarize --dry-run                 # Preview what would be summarized
 ```
 
-> **Tip:** Summarization normally runs automatically at 50 entries. Use `/summarize` after busy sessions to compress the log immediately.
+> **Tip:** Summarization normally runs automatically at 50 entries. Use `/summarize` after busy sessions to compress the
+> log immediately.
 
 ### Inspecting Memory Manually
 
@@ -146,12 +148,12 @@ Edit `~/.claude-mneme/config.json` to customize behavior:
 <details>
 <summary><strong>Core Settings</strong></summary>
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `maxLogEntriesBeforeSummarize` | `50` | Trigger summarization at this log size |
-| `keepRecentEntries` | `10` | Recent entries to keep after summarization |
-| `model` | `haiku` | Model for summarization (`haiku`, `sonnet`, `opus`) |
-| `maxResponseLength` | `1000` | Max characters for captured responses |
+| Option                         | Default | Description                                         |
+|--------------------------------|---------|-----------------------------------------------------|
+| `maxLogEntriesBeforeSummarize` | `50`    | Trigger summarization at this log size              |
+| `keepRecentEntries`            | `10`    | Recent entries to keep after summarization          |
+| `model`                        | `haiku` | Model for summarization (`haiku`, `sonnet`, `opus`) |
+| `maxResponseLength`            | `1000`  | Max characters for captured responses               |
 
 </details>
 
@@ -164,23 +166,38 @@ Control what gets injected at session start:
 {
   "contextInjection": {
     "sections": {
-      "projectContext": { "enabled": true },
-      "keyDecisions": { "enabled": true, "maxItems": 10 },
-      "currentState": { "enabled": true, "maxItems": 10 },
-      "recentWork": { "enabled": true, "maxItems": 5, "maxAgeDays": 7 },
-      "recentEntries": { "enabled": true, "maxItems": 4 }
+      "projectContext": {
+        "enabled": true
+      },
+      "keyDecisions": {
+        "enabled": true,
+        "maxItems": 10
+      },
+      "currentState": {
+        "enabled": true,
+        "maxItems": 10
+      },
+      "recentWork": {
+        "enabled": true,
+        "maxItems": 5,
+        "maxAgeDays": 7
+      },
+      "recentEntries": {
+        "enabled": true,
+        "maxItems": 4
+      }
     }
   }
 }
 ```
 
-| Section | Priority | Default Items |
-|---------|----------|---------------|
-| `projectContext` | High | Always shown |
-| `keyDecisions` | High | Last 10 |
-| `currentState` | High | Last 10 |
-| `recentWork` | Medium | Last 5 (within 7 days) |
-| `recentEntries` | Low | Last 4 |
+| Section          | Priority | Default Items          |
+|------------------|----------|------------------------|
+| `projectContext` | High     | Always shown           |
+| `keyDecisions`   | High     | Last 10                |
+| `currentState`   | High     | Last 10                |
+| `recentWork`     | Medium   | Last 5 (within 7 days) |
+| `recentEntries`  | Low      | Last 4                 |
 
 </details>
 
@@ -198,7 +215,8 @@ Group related entries and keep highest-signal:
 }
 ```
 
-When you work on something, multiple entries are created (prompt → task → commit). Deduplication groups entries within the time window and keeps only the most important one.
+When you work on something, multiple entries are created (prompt → task → commit). Deduplication groups entries within
+the time window and keeps only the most important one.
 
 </details>
 
@@ -279,13 +297,13 @@ At session start, Mneme injects context in priority order:
 
 ### What Gets Captured
 
-| Type | Source | Description |
-|------|--------|-------------|
-| `prompt` | UserPromptSubmit | Your requests and questions |
-| `task` | TaskCreate/Update | Work focus and progress (with outcome) |
-| `commit` | Bash (git) | Git commit messages |
-| `agent` | SubagentStop | Agent completion summaries |
-| `response` | Stop | Assistant's summarized response |
+| Type       | Source            | Description                            |
+|------------|-------------------|----------------------------------------|
+| `prompt`   | UserPromptSubmit  | Your requests and questions            |
+| `task`     | TaskCreate/Update | Work focus and progress (with outcome) |
+| `commit`   | Bash (git)        | Git commit messages                    |
+| `agent`    | SubagentStop      | Agent completion summaries             |
+| `response` | Stop              | Assistant's summarized response        |
 
 ### Smart Processing
 
@@ -299,6 +317,7 @@ Before injection, entries are processed:
 ### What Gets Filtered
 
 To reduce noise, Mneme automatically filters:
+
 - Short prompts (<20 chars)
 - Confirmations ("yes", "ok", "continue")
 - Slash commands
@@ -381,13 +400,13 @@ Machine A                          Server                          Machine B
 }
 ```
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `enabled` | `false` | Enable sync (local-only by default) |
-| `serverUrl` | `null` | Server URL (e.g., `http://192.168.1.100:3847`) |
-| `apiKey` | `null` | API key if server requires auth |
-| `projectId` | `null` | Override auto-detected project name |
-| `timeoutMs` | `10000` | Request timeout in milliseconds |
+| Option      | Default | Description                                    |
+|-------------|---------|------------------------------------------------|
+| `enabled`   | `false` | Enable sync (local-only by default)            |
+| `serverUrl` | `null`  | Server URL (e.g., `http://192.168.1.100:3847`) |
+| `apiKey`    | `null`  | API key if server requires auth                |
+| `projectId` | `null`  | Override auto-detected project name            |
+| `timeoutMs` | `10000` | Request timeout in milliseconds                |
 
 </details>
 
@@ -400,17 +419,19 @@ Create `~/.mneme-server/config.json` on the server:
 {
   "port": 3847,
   "dataDir": "~/.mneme-server",
-  "apiKeys": ["your-secret-key"],
+  "apiKeys": [
+    "your-secret-key"
+  ],
   "lockTTLMinutes": 30
 }
 ```
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `port` | `3847` | Port to listen on |
-| `dataDir` | `~/.mneme-server` | Where to store project data |
-| `apiKeys` | `[]` | API keys for auth (empty = no auth) |
-| `lockTTLMinutes` | `30` | Lock expiration time |
+| Option           | Default           | Description                         |
+|------------------|-------------------|-------------------------------------|
+| `port`           | `3847`            | Port to listen on                   |
+| `dataDir`        | `~/.mneme-server` | Where to store project data         |
+| `apiKeys`        | `[]`              | API keys for auth (empty = no auth) |
+| `lockTTLMinutes` | `30`              | Lock expiration time                |
 
 </details>
 
@@ -449,30 +470,40 @@ docker run -d -p 3847:3847 -v ~/.mneme-server:/root/.mneme-server \
 
 </details>
 
-> **Note:** For security, enable API keys for any non-localhost deployment and consider putting behind a reverse proxy (nginx, caddy) for HTTPS.
+> **Note:** For security, enable API keys for any non-localhost deployment and consider putting behind a reverse proxy (
+> nginx, caddy) for HTTPS.
 
 See [`server/README.md`](server/README.md) for full documentation.
 
 ## Changelog
 
-| Version | Changes |
-|---------|---------|
-| **2.5.0** | Optional sync server for multi-machine memory sync |
+| Version   | Changes                                                                                        |
+|-----------|------------------------------------------------------------------------------------------------|
+| **2.5.0** | Optional sync server for multi-machine memory sync                                             |
 | **2.4.0** | Entity extraction, `/entity`, hierarchical injection, deduplication, outcome tracking, caching |
-| **2.3.0** | Relevance scoring, compaction hooks, incremental summarization, `/forget` |
-| **2.2.0** | Continuous summarization on every log write |
-| **2.1.0** | TaskCreate/TaskUpdate hooks, SubagentStop capture |
-| **2.0.0** | Renamed to claude-mneme, response-based capture |
+| **2.3.0** | Relevance scoring, compaction hooks, incremental summarization, `/forget`                      |
+| **2.2.0** | Continuous summarization on every log write                                                    |
+| **2.1.0** | TaskCreate/TaskUpdate hooks, SubagentStop capture                                              |
+| **2.0.0** | Renamed to claude-mneme, response-based capture                                                |
 
 <details>
 <summary>Earlier versions</summary>
 
-| Version | Changes |
-|---------|---------|
+| Version   | Changes                                  |
+|-----------|------------------------------------------|
 | **1.3.0** | UserPromptSubmit hook, TodoWrite capture |
-| **1.2.0** | Initial release |
+| **1.2.0** | Initial release                          |
 
 </details>
+
+## Related Projects
+
+Other tools for enhancing Claude Code:
+
+| Project | Description |
+|---------|-------------|
+| [claude-simple-status](https://github.com/edimuj/claude-simple-status) | Minimal statusline showing active model, context usage, and quota indicators |
+| [tokenlean](https://github.com/edimuj/tokenlean) | CLI toolkit with 32+ commands for examining codebases while minimizing token usage |
 
 ## Contributing
 
