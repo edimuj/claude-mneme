@@ -1,6 +1,6 @@
 {
   "name": "claude-mneme",
-  "version": "2.5.2",
+  "version": "2.6.0",
   "description": "Persistent memory system for Claude Code - remembers context across sessions",
   "author": {
     "name": "Edin Mujkanovic"
