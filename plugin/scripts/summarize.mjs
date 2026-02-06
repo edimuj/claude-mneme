@@ -17,7 +17,6 @@ import {
   getProjectName,
   formatEntriesForSummary,
   emptyStructuredSummary,
-  renderSummaryToMarkdown,
   deduplicateEntries,
   logError
 } from './utils.mjs';
@@ -403,20 +402,21 @@ try {
     const newSummary = applyUpdates(existingSummary, updates);
     writeFileSync(paths.summaryJson, JSON.stringify(newSummary, null, 2) + '\n');
 
-    // Also write markdown version for backwards compatibility / human readability
-    const markdown = renderSummaryToMarkdown(newSummary, projectName);
-    writeFileSync(paths.summary, markdown.full + '\n');
+    // Re-read the log to preserve any entries appended during summarization.
+    // We remove only the lines we actually summarized (by count from the top),
+    // keeping both the originally-retained entries and any new ones.
+    const currentLogContent = readFileSync(paths.log, 'utf-8').trim();
+    const currentLines = currentLogContent ? currentLogContent.split('\n').filter(l => l) : [];
+    const remainingLines = currentLines.slice(summarizeCount);
+    writeFileSync(paths.log, remainingLines.join('\n') + (remainingLines.length ? '\n' : ''));
 
-    // Trim the log
-    writeFileSync(paths.log, entriesToKeep.join('\n') + (entriesToKeep.length ? '\n' : ''));
-
-    console.error(`[claude-mneme] Summary updated. Kept ${entriesToKeep.length} recent entries.`);
+    console.error(`[claude-mneme] Summary updated. Kept ${remainingLines.length} entries (${remainingLines.length - entriesToKeep.length} arrived during summarization).`);
   } else {
     console.error('[claude-mneme] Summarization returned no updates, keeping log intact.');
   }
 
 } finally {
-  try { writeFileSync(lockFile, ''); } catch {}
+  try { unlinkSync(lockFile); } catch {}
 }
 
 process.exit(0);

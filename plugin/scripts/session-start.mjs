@@ -12,7 +12,7 @@
 import { readFileSync, writeFileSync, existsSync, unlinkSync } from 'fs';
 import { execFileSync } from 'child_process';
 import { join } from 'path';
-import { ensureMemoryDirs, loadConfig, getProjectName, formatEntry, renderSummaryToMarkdown, flushPendingLog, scoreEntriesByRelevance, getRelevantEntities, deduplicateEntries, readCachedData, logError, getErrorsSince } from './utils.mjs';
+import { ensureMemoryDirs, loadConfig, getProjectName, escapeAttr, formatEntry, renderSummaryToMarkdown, flushPendingLog, scoreEntriesByRelevance, getRelevantEntities, deduplicateEntries, readCachedData, logError, getErrorsSince } from './utils.mjs';
 import { pullIfEnabled, startHeartbeat } from './sync.mjs';
 
 async function main() {
@@ -50,12 +50,6 @@ async function main() {
 
   if (cachedData.summary) {
     summaryParts = renderSummaryToMarkdown(cachedData.summary, projectName, ciConfig);
-  } else if (existsSync(paths.summary)) {
-    // Fall back to markdown if no JSON summary
-    try {
-      summaryParts.full = readFileSync(paths.summary, 'utf-8').trim();
-      summaryParts.high = summaryParts.full;
-    } catch {}
   }
 
   // Read persistent remembered items (HIGH priority)
@@ -98,8 +92,8 @@ async function main() {
   if (aeConfig.enabled !== false && eeConfig.enabled !== false) {
     try {
       relevantEntities = getRelevantEntities(cwd);
-    } catch {
-      // Ignore errors
+    } catch (e) {
+      logError(e, 'session-start:getRelevantEntities');
     }
   }
 
@@ -134,8 +128,8 @@ async function main() {
   // Write current timestamp for next session
   try {
     writeFileSync(paths.lastSession, new Date().toISOString(), 'utf-8');
-  } catch {
-    // Ignore write errors
+  } catch (e) {
+    logError(e, 'session-start:lastSession');
   }
 
   // ============================================================================
@@ -147,7 +141,7 @@ async function main() {
                      recentEntries.length > 0 || relevantEntities;
 
   if (hasContent) {
-    console.log(`<claude-mneme project="${projectName}">`);
+    console.log(`<claude-mneme project="${escapeAttr(projectName)}">`);
 
     // HIGH PRIORITY SECTION
     if (summaryParts.high) {
@@ -211,5 +205,5 @@ main()
   .catch(err => {
     logError(err, 'session-start');
     console.error(`[mneme] Error: ${err.message}`);
-    process.exit(1);
+    process.exit(0); // Exit 0 — memory is non-critical, don't block session startup
   });

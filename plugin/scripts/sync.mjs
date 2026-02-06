@@ -27,8 +27,8 @@ function getClientId(basePath) {
   if (existsSync(clientIdPath)) {
     try {
       return readFileSync(clientIdPath, 'utf-8').trim();
-    } catch {
-      // Fall through to generate new ID
+    } catch (e) {
+      logError(e, 'sync:readClientId');
     }
   }
 
@@ -36,8 +36,8 @@ function getClientId(basePath) {
   const clientId = `${hostname()}-${randomUUID().slice(0, 8)}`;
   try {
     writeFileSync(clientIdPath, clientId);
-  } catch {
-    // Ignore write errors, use generated ID
+  } catch (e) {
+    logError(e, 'sync:writeClientId');
   }
 
   return clientId;
@@ -51,17 +51,18 @@ function getClientId(basePath) {
  * Simple HTTP client using Node.js built-in http/https modules
  */
 class HttpClient {
-  constructor(baseUrl, apiKey = null, timeoutMs = 10000) {
+  constructor(baseUrl, apiKey = null, timeoutMs = 10000, retries = 3) {
     this.baseUrl = baseUrl.replace(/\/$/, ''); // Remove trailing slash
     this.apiKey = apiKey;
     this.timeoutMs = timeoutMs;
+    this.retries = retries;
 
     // Determine protocol
     const url = new URL(baseUrl);
     this.protocol = url.protocol === 'https:' ? 'https' : 'http';
   }
 
-  async request(method, path, body = null, headers = {}) {
+  _singleRequest(method, path, body = null, headers = {}) {
     const url = new URL(path, this.baseUrl);
 
     // Add auth header if API key is set
@@ -86,9 +87,19 @@ class HttpClient {
         timeout: this.timeoutMs
       };
 
+      const MAX_RESPONSE_SIZE = 10 * 1024 * 1024; // 10 MB
       const req = httpModule.request(options, (res) => {
         const chunks = [];
-        res.on('data', chunk => chunks.push(chunk));
+        let totalSize = 0;
+        res.on('data', chunk => {
+          totalSize += chunk.length;
+          if (totalSize > MAX_RESPONSE_SIZE) {
+            req.destroy();
+            reject(new Error('Response body too large'));
+            return;
+          }
+          chunks.push(chunk);
+        });
         res.on('end', () => {
           const body = Buffer.concat(chunks).toString();
           let data = null;
@@ -115,6 +126,22 @@ class HttpClient {
       }
       req.end();
     });
+  }
+
+  async request(method, path, body = null, headers = {}) {
+    let lastError;
+    for (let attempt = 0; attempt <= this.retries; attempt++) {
+      try {
+        return await this._singleRequest(method, path, body, { ...headers });
+      } catch (err) {
+        lastError = err;
+        if (attempt < this.retries) {
+          // Exponential backoff: 500ms, 1000ms, 2000ms...
+          await new Promise(r => setTimeout(r, 500 * Math.pow(2, attempt)));
+        }
+      }
+    }
+    throw lastError;
   }
 
   get(path, headers = {}) {
@@ -157,7 +184,7 @@ export class SyncClient {
     this.clientId = getClientId(this.paths.base);
 
     this.http = this.enabled
-      ? new HttpClient(this.serverUrl, this.apiKey, this.timeoutMs)
+      ? new HttpClient(this.serverUrl, this.apiKey, this.timeoutMs, this.retries)
       : null;
   }
 
@@ -323,7 +350,6 @@ export class SyncClient {
 const FILES_TO_SYNC = [
   { name: 'log.jsonl', key: 'log' },
   { name: 'summary.json', key: 'summaryJson' },
-  { name: 'summary.md', key: 'summary' },
   { name: 'remembered.json', key: 'remembered' },
   { name: 'entities.json', key: 'entities' }
 ];
@@ -438,58 +464,71 @@ export async function pullIfEnabled(cwd, config) {
     return { synced: false, lockAcquired: false, message: 'Lock failed' };
   }
 
-  // List server files
-  const serverFiles = await client.listServerFiles();
-  if (!serverFiles.success) {
-    console.error(`[mneme-sync] Failed to list server files`);
-    return { synced: false, lockAcquired: true, message: 'List files failed' };
-  }
+  // Wrap post-lock operations in try/finally to release lock on failure
+  try {
+    // List server files
+    const serverFiles = await client.listServerFiles();
+    if (!serverFiles.success) {
+      console.error(`[mneme-sync] Failed to list server files`);
+      return { synced: false, lockAcquired: true, message: 'List files failed' };
+    }
 
-  // Build map of server files by name
-  const serverFileMap = new Map();
-  for (const f of serverFiles.files) {
-    serverFileMap.set(f.name, f);
-  }
+    // Build map of server files by name
+    const serverFileMap = new Map();
+    for (const f of serverFiles.files) {
+      serverFileMap.set(f.name, f);
+    }
 
-  // Download files that are newer on server
-  const pulledFiles = [];
-  const paths = ensureMemoryDirs(cwd);
+    // Download files that are newer on server
+    const pulledFiles = [];
+    const paths = ensureMemoryDirs(cwd);
 
-  for (const { name, key } of FILES_TO_SYNC) {
-    const localPath = paths[key];
-    if (!localPath) continue;
+    for (const { name, key } of FILES_TO_SYNC) {
+      const localPath = paths[key];
+      if (!localPath) continue;
 
-    const serverFile = serverFileMap.get(name);
-    if (!serverFile) continue; // File doesn't exist on server
+      const serverFile = serverFileMap.get(name);
+      if (!serverFile) continue; // File doesn't exist on server
 
-    const localInfo = getLocalFileInfo(localPath);
-    const serverMtimeMs = new Date(serverFile.mtime).getTime();
+      const localInfo = getLocalFileInfo(localPath);
+      const serverMtimeMs = new Date(serverFile.mtime).getTime();
 
-    // Download if server is newer or local doesn't exist
-    if (!localInfo || serverMtimeMs > localInfo.mtimeMs) {
-      const download = await client.downloadFile(name);
-      if (download.success) {
-        try {
-          writeFileSync(localPath, download.content);
-          pulledFiles.push(name);
-        } catch (err) {
-          console.error(`[mneme-sync] Failed to write ${name}: ${err.message}`);
-          logError(err, 'sync-pull-write');
+      // Download if server is newer or local doesn't exist
+      if (!localInfo || serverMtimeMs > localInfo.mtimeMs) {
+        const download = await client.downloadFile(name);
+        if (download.success) {
+          try {
+            // Backup existing local file before overwriting
+            if (existsSync(localPath)) {
+              writeFileSync(localPath + '.bak', readFileSync(localPath));
+            }
+            writeFileSync(localPath, download.content);
+            pulledFiles.push(name);
+          } catch (err) {
+            console.error(`[mneme-sync] Failed to write ${name}: ${err.message}`);
+            logError(err, 'sync-pull-write');
+          }
         }
       }
     }
-  }
 
-  if (pulledFiles.length > 0) {
-    console.error(`[mneme-sync] Synced from server: ${pulledFiles.join(', ')}`);
-  }
+    if (pulledFiles.length > 0) {
+      console.error(`[mneme-sync] Synced from server: ${pulledFiles.join(', ')}`);
+    }
 
-  return {
-    synced: true,
-    lockAcquired: true,
-    files: pulledFiles,
-    message: pulledFiles.length > 0 ? 'Synced from server' : 'Already up to date'
-  };
+    return {
+      synced: true,
+      lockAcquired: true,
+      files: pulledFiles,
+      message: pulledFiles.length > 0 ? 'Synced from server' : 'Already up to date'
+    };
+  } catch (err) {
+    // Release lock on unexpected failure so the project isn't locked for 30 minutes
+    console.error(`[mneme-sync] Pull failed, releasing lock: ${err.message}`);
+    logError(err, 'sync-pull');
+    try { await client.releaseLock(); } catch {}
+    return { synced: false, lockAcquired: false, message: `Pull failed: ${err.message}` };
+  }
 }
 
 /**

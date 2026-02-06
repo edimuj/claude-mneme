@@ -2,7 +2,7 @@
  * Shared utilities for claude-mneme plugin
  */
 
-import { existsSync, mkdirSync, readFileSync, appendFileSync, writeFileSync, statSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, appendFileSync, writeFileSync, statSync, unlinkSync, renameSync, openSync, closeSync, writeSync, constants as fsConstants } from 'fs';
 import { execFileSync, spawn } from 'child_process';
 import { homedir } from 'os';
 import { join, basename, dirname } from 'path';
@@ -10,6 +10,13 @@ import { fileURLToPath } from 'url';
 
 export const MEMORY_BASE = join(homedir(), '.claude-mneme');
 export const CONFIG_FILE = join(MEMORY_BASE, 'config.json');
+
+/**
+ * Escape a string for use inside an XML/HTML attribute value.
+ */
+export function escapeAttr(str) {
+  return String(str).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
 
 /**
  * Get the project name from cwd
@@ -66,6 +73,41 @@ export function ensureMemoryDirs(cwd = process.cwd()) {
     lastSession: join(projectDir, '.last-session'),
     config: CONFIG_FILE
   };
+}
+
+/**
+ * Acquire a file lock using O_EXCL, run fn, then release.
+ * If the lock is held by another process, returns undefined without running fn.
+ * Stale locks (older than staleSec) are automatically broken.
+ */
+export function withFileLock(lockPath, fn, staleSec = 10) {
+  try {
+    const fd = openSync(lockPath, fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_WRONLY);
+    writeSync(fd, Buffer.from(process.pid.toString()));
+    closeSync(fd);
+  } catch (e) {
+    if (e.code !== 'EEXIST') throw e;
+    // Lock exists — check if stale
+    try {
+      if (Date.now() - statSync(lockPath).mtimeMs > staleSec * 1000) {
+        unlinkSync(lockPath);
+        // Retry once
+        const fd = openSync(lockPath, fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_WRONLY);
+        writeSync(fd, Buffer.from(process.pid.toString()));
+        closeSync(fd);
+      } else {
+        return undefined; // Lock held, skip
+      }
+    } catch {
+      return undefined; // Can't break stale lock or lost retry race, skip
+    }
+  }
+
+  try {
+    return fn();
+  } finally {
+    try { unlinkSync(lockPath); } catch {}
+  }
 }
 
 /**
@@ -164,14 +206,18 @@ function readFreshData(paths) {
   if (existsSync(paths.summaryJson)) {
     try {
       result.summary = JSON.parse(readFileSync(paths.summaryJson, 'utf-8'));
-    } catch {}
+    } catch (e) {
+      logError(e, 'readFreshData:summary.json');
+    }
   }
 
   // Read remembered
   if (existsSync(paths.remembered)) {
     try {
       result.remembered = JSON.parse(readFileSync(paths.remembered, 'utf-8'));
-    } catch {}
+    } catch (e) {
+      logError(e, 'readFreshData:remembered.json');
+    }
   }
 
   // Read and parse log entries
@@ -187,14 +233,18 @@ function readFreshData(paths) {
           })
           .filter(Boolean);
       }
-    } catch {}
+    } catch (e) {
+      logError(e, 'readFreshData:log.jsonl');
+    }
   }
 
   // Read entities
   if (existsSync(paths.entities)) {
     try {
       result.entities = JSON.parse(readFileSync(paths.entities, 'utf-8'));
-    } catch {}
+    } catch (e) {
+      logError(e, 'readFreshData:entities.json');
+    }
   }
 
   return result;
@@ -209,13 +259,39 @@ export function invalidateCache(cwd = process.cwd()) {
     if (existsSync(paths.cache)) {
       writeFileSync(paths.cache, '{}');
     }
-  } catch {}
+  } catch (e) {
+    logError(e, 'invalidateCache');
+  }
 }
 
 /**
- * Load config with defaults
+ * Recursively merge source into target, preserving nested default keys.
+ * Arrays and non-plain-object values from source replace target entirely.
  */
+function deepMerge(target, source) {
+  const result = { ...target };
+  for (const key of Object.keys(source)) {
+    const srcVal = source[key];
+    const tgtVal = target[key];
+    if (
+      srcVal && typeof srcVal === 'object' && !Array.isArray(srcVal) &&
+      tgtVal && typeof tgtVal === 'object' && !Array.isArray(tgtVal)
+    ) {
+      result[key] = deepMerge(tgtVal, srcVal);
+    } else {
+      result[key] = srcVal;
+    }
+  }
+  return result;
+}
+
+/**
+ * Load config with defaults (cached per process)
+ */
+let _cachedConfig = null;
 export function loadConfig() {
+  if (_cachedConfig) return _cachedConfig;
+
   const defaultConfig = {
     maxLogEntriesBeforeSummarize: 50,
     keepRecentEntries: 10,
@@ -373,9 +449,9 @@ export function loadConfig() {
   let config = defaultConfig;
   if (existsSync(CONFIG_FILE)) {
     try {
-      config = { ...defaultConfig, ...JSON.parse(readFileSync(CONFIG_FILE, 'utf-8')) };
-    } catch {
-      // ignore parse errors, use defaults
+      config = deepMerge(defaultConfig, JSON.parse(readFileSync(CONFIG_FILE, 'utf-8')));
+    } catch (e) {
+      logError(e, 'loadConfig:config.json');
     }
   }
 
@@ -395,6 +471,7 @@ export function loadConfig() {
     }
   }
 
+  _cachedConfig = config;
   return config;
 }
 
@@ -471,16 +548,24 @@ export function splitSentences(text) {
 }
 
 /**
- * Score a sentence based on action word matches
+ * Score a sentence based on action word matches.
+ * Uses a single pre-compiled regex for all action words.
  */
-function scoreSentence(sentence, actionWords) {
-  const lower = sentence.toLowerCase();
-  let score = 0;
-  for (const word of actionWords) {
-    const regex = new RegExp(`\\b${word}\\b`, 'i');
-    if (regex.test(lower)) score += 1;
+const _actionWordRegexCache = new Map();
+function getActionWordRegex(actionWords) {
+  const key = actionWords.join('|');
+  if (!_actionWordRegexCache.has(key)) {
+    const alternation = actionWords.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+    _actionWordRegexCache.set(key, new RegExp(`\\b(?:${alternation})\\b`, 'gi'));
   }
-  return score;
+  return _actionWordRegexCache.get(key);
+}
+
+function scoreSentence(sentence, actionWords) {
+  const regex = getActionWordRegex(actionWords);
+  regex.lastIndex = 0;
+  const matches = sentence.match(regex);
+  return matches ? matches.length : 0;
 }
 
 /**
@@ -1001,7 +1086,8 @@ export function loadEntityIndex(cwd = process.cwd()) {
   if (existsSync(paths.entities)) {
     try {
       return JSON.parse(readFileSync(paths.entities, 'utf-8'));
-    } catch {
+    } catch (e) {
+      logError(e, 'loadEntityIndex:entities.json');
       return emptyEntityIndex();
     }
   }
@@ -1035,52 +1121,59 @@ export function updateEntityIndex(entry, cwd = process.cwd(), config = {}) {
   if (Object.keys(entities).length === 0) return;
 
   const paths = ensureMemoryDirs(cwd);
-  const index = loadEntityIndex(cwd);
-  const maxContexts = eeConfig.maxContextsPerEntity || 5;
+  const lockPath = paths.entities + '.lock';
 
-  // Create context summary for this entry
-  const contextSummary = {
-    ts: entry.ts,
-    type: entry.type,
-    summary: truncateContext(entry.content || entry.subject || '', 80)
-  };
+  // Lock the entire read-modify-write cycle to prevent concurrent updates
+  // from overwriting each other. If lock is contended, skip — entity data
+  // is reconstructable and losing one update is acceptable.
+  withFileLock(lockPath, () => {
+    const index = loadEntityIndex(cwd);
+    const maxContexts = eeConfig.maxContextsPerEntity || 5;
 
-  // Update each category
-  for (const [category, names] of Object.entries(entities)) {
-    if (!index[category]) index[category] = {};
+    // Create context summary for this entry
+    const contextSummary = {
+      ts: entry.ts,
+      type: entry.type,
+      summary: truncateContext(entry.content || entry.subject || '', 80)
+    };
 
-    for (const name of names) {
-      if (!index[category][name]) {
-        index[category][name] = {
-          mentions: 0,
-          lastSeen: null,
-          contexts: []
-        };
-      }
+    // Update each category
+    for (const [category, names] of Object.entries(entities)) {
+      if (!index[category]) index[category] = {};
 
-      const entityData = index[category][name];
-      entityData.mentions++;
-      entityData.lastSeen = entry.ts;
+      for (const name of names) {
+        if (!index[category][name]) {
+          index[category][name] = {
+            mentions: 0,
+            lastSeen: null,
+            contexts: []
+          };
+        }
 
-      // Add context, keeping only the most recent N
-      entityData.contexts.push(contextSummary);
-      if (entityData.contexts.length > maxContexts) {
-        entityData.contexts = entityData.contexts.slice(-maxContexts);
+        const entityData = index[category][name];
+        entityData.mentions++;
+        entityData.lastSeen = entry.ts;
+
+        // Add context, keeping only the most recent N
+        entityData.contexts.push(contextSummary);
+        if (entityData.contexts.length > maxContexts) {
+          entityData.contexts = entityData.contexts.slice(-maxContexts);
+        }
       }
     }
-  }
 
-  index.lastUpdated = new Date().toISOString();
+    index.lastUpdated = new Date().toISOString();
 
-  // Prune stale entities (at most once per day)
-  pruneEntityIndex(index, eeConfig);
+    // Prune stale entities (at most once per day)
+    pruneEntityIndex(index, eeConfig);
 
-  // Write updated index
-  try {
-    writeFileSync(paths.entities, JSON.stringify(index, null, 2));
-  } catch {
-    // Silent fail
-  }
+    // Write updated index
+    try {
+      writeFileSync(paths.entities, JSON.stringify(index, null, 2));
+    } catch (e) {
+      logError(e, 'updateEntityIndex:write');
+    }
+  });
 }
 
 /**
@@ -1134,8 +1227,10 @@ export function getRelevantEntities(cwd = process.cwd(), recentFiles = []) {
   const result = { files: [], functions: [], errors: [], packages: [] };
 
   // Score entities by recency and mention count
-  for (const [category, entities] of Object.entries(index)) {
-    if (category === 'lastUpdated') continue;
+  const entityCategories = ['files', 'functions', 'errors', 'packages'];
+  for (const category of entityCategories) {
+    const entities = index[category];
+    if (!entities || typeof entities !== 'object') continue;
 
     const scored = [];
     for (const [name, data] of Object.entries(entities)) {
@@ -1481,6 +1576,7 @@ export function appendLogEntry(entry, cwd = process.cwd()) {
 export function flushPendingLog(cwd = process.cwd(), throttleMs = 0) {
   const paths = ensureMemoryDirs(cwd);
   const pendingPath = paths.log.replace('.jsonl', '.pending.jsonl');
+  const flushingPath = pendingPath + '.flushing';
   const lastFlushPath = paths.log + '.lastflush';
 
   // Check throttle
@@ -1495,30 +1591,42 @@ export function flushPendingLog(cwd = process.cwd(), throttleMs = 0) {
     }
   }
 
-  // Check if pending file exists and has content
   if (!existsSync(pendingPath)) {
     return;
   }
 
+  // Atomic rename: only one process wins; losers get ENOENT.
+  // New entries written after this go to a fresh pending file.
   try {
-    const pending = readFileSync(pendingPath, 'utf-8').trim();
-    if (!pending) {
-      return;
+    renameSync(pendingPath, flushingPath);
+  } catch (e) {
+    if (e.code === 'ENOENT') return; // Another process already claimed it
+    logError(e, 'flushPendingLog:rename');
+    return;
+  }
+
+  try {
+    const pending = readFileSync(flushingPath, 'utf-8').trim();
+    if (pending) {
+      appendFileSync(paths.log, pending + '\n');
     }
 
-    // Append pending to main log
-    appendFileSync(paths.log, pending + '\n');
-
-    // Clear pending file
-    writeFileSync(pendingPath, '');
+    // Remove the flushing file now that entries are safely in the main log
+    unlinkSync(flushingPath);
 
     // Update last flush timestamp
     writeFileSync(lastFlushPath, Date.now().toString());
 
     // Now check if summarization is needed (once, after batch)
     maybeSummarize(cwd);
-  } catch {
-    // Silent fail - don't block hooks
+  } catch (e) {
+    // If append failed, restore pending file so entries aren't lost
+    try {
+      if (existsSync(flushingPath)) {
+        renameSync(flushingPath, pendingPath);
+      }
+    } catch {}
+    logError(e, 'flushPendingLog');
   }
 }
 
@@ -1545,15 +1653,28 @@ export function maybeSummarize(cwd = process.cwd()) {
       return;
     }
 
-    // Check for existing lock (avoid spawning if already running)
+    // Acquire lock atomically using O_EXCL (fails if file already exists)
     const lockFile = paths.log + '.lock';
-    if (existsSync(lockFile)) {
-      const lockContent = readFileSync(lockFile, 'utf-8').trim();
-      const lockTime = parseInt(lockContent, 10);
-      if (lockTime && Date.now() - lockTime < 5 * 60 * 1000) {
-        // Lock is fresh, summarization already running
-        return;
+    try {
+      // If lock exists, check if it's stale
+      if (existsSync(lockFile)) {
+        const lockContent = readFileSync(lockFile, 'utf-8').trim();
+        const lockTime = parseInt(lockContent, 10);
+        if (lockTime && Date.now() - lockTime < 5 * 60 * 1000) {
+          return; // Lock is fresh, summarization already running
+        }
+        // Stale lock — remove it so we can try to acquire
+        try { unlinkSync(lockFile); } catch {}
       }
+
+      // Atomic create: O_CREAT | O_EXCL | O_WRONLY fails if another process created it first
+      const fd = openSync(lockFile, fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_WRONLY);
+      const timestamp = Buffer.from(Date.now().toString());
+      writeSync(fd, timestamp);
+      closeSync(fd);
+    } catch {
+      // Another process won the race — let it handle summarization
+      return;
     }
 
     // Spawn summarize.mjs in background
@@ -1568,8 +1689,8 @@ export function maybeSummarize(cwd = process.cwd()) {
     });
 
     child.unref();
-  } catch {
-    // Silent fail - don't block the calling script
+  } catch (e) {
+    logError(e, 'maybeSummarize');
   }
 }
 

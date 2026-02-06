@@ -9,7 +9,7 @@
  */
 
 import { readFileSync, writeFileSync, existsSync } from 'fs';
-import { ensureDeps, ensureMemoryDirs, loadConfig, getProjectName } from './utils.mjs';
+import { ensureDeps, ensureMemoryDirs, loadConfig, getProjectName, invalidateCache } from './utils.mjs';
 
 const cwd = process.cwd();
 const paths = ensureMemoryDirs(cwd);
@@ -35,6 +35,7 @@ function readEntries() {
 // Write entries back
 function writeEntries(entries) {
   writeFileSync(paths.remembered, JSON.stringify(entries, null, 2) + '\n');
+  invalidateCache(cwd);
 }
 
 // Format entry for display

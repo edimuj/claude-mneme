@@ -9,7 +9,8 @@
  */
 
 import { readFileSync, existsSync } from 'fs';
-import { ensureMemoryDirs, loadConfig, getProjectName } from './utils.mjs';
+import { join } from 'path';
+import { ensureMemoryDirs, loadConfig, getProjectName, escapeAttr } from './utils.mjs';
 
 const cwd = process.cwd();
 const paths = ensureMemoryDirs(cwd);
@@ -23,7 +24,7 @@ if (pcConfig.enabled === false) {
 }
 
 // Read extracted context from PreCompact
-const extractedPath = paths.project + '/extracted-context.json';
+const extractedPath = join(paths.project, 'extracted-context.json');
 let extractions = [];
 
 if (existsSync(extractedPath)) {
@@ -54,7 +55,7 @@ if (extractionAge > maxAge) {
 // Build injection output
 const sections = [];
 
-sections.push(`<claude-mneme-restored project="${projectName}">`);
+sections.push(`<claude-mneme-restored project="${escapeAttr(projectName)}">`);
 sections.push('## Context Restored After Compaction\n');
 sections.push('The following context was extracted before compaction and may be relevant:\n');
 

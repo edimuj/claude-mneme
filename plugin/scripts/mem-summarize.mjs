@@ -19,7 +19,6 @@ import {
   getProjectName,
   formatEntriesForSummary,
   emptyStructuredSummary,
-  renderSummaryToMarkdown,
   deduplicateEntries,
   flushPendingLog,
   logError
@@ -83,7 +82,9 @@ if (dryRun) {
     try {
       const summary = JSON.parse(readFileSync(paths.summaryJson, 'utf-8'));
       hasSummary = !!summary.lastUpdated;
-    } catch {}
+    } catch (e) {
+      logError(e, 'mem-summarize:summary.json');
+    }
   }
 
   console.log(JSON.stringify({
@@ -123,7 +124,9 @@ try {
   if (existsSync(paths.summaryJson)) {
     try {
       existingSummary = JSON.parse(readFileSync(paths.summaryJson, 'utf-8'));
-    } catch {}
+    } catch (e) {
+      logError(e, 'mem-summarize:existingSummary');
+    }
   }
 
   // Calculate entries to summarize vs keep
@@ -267,6 +270,29 @@ Rules:
   }
 
   let recentWork = [...(result.recentWork || [])];
+
+  // Remove stale items (process in reverse to preserve indices)
+  if (updates.removeFromRecentWork?.length > 0) {
+    const toRemove = new Set(updates.removeFromRecentWork.map(Number));
+    recentWork = recentWork.filter((_, i) => !toRemove.has(i));
+  }
+
+  // Promote items to current state
+  if (updates.promoteToCurrentState?.length > 0) {
+    const toPromote = new Set(updates.promoteToCurrentState.map(Number));
+    for (const idx of toPromote) {
+      if (result.recentWork?.[idx]) {
+        const item = result.recentWork[idx];
+        result.currentState = result.currentState || [];
+        result.currentState.push({
+          topic: 'Completed',
+          status: item.summary
+        });
+      }
+    }
+    recentWork = recentWork.filter((_, i) => !toPromote.has(i));
+  }
+
   if (updates.newRecentWork?.length > 0) {
     recentWork = [...recentWork, ...updates.newRecentWork];
   }
@@ -284,18 +310,17 @@ Rules:
   // Write updated summary
   writeFileSync(paths.summaryJson, JSON.stringify(result, null, 2) + '\n');
 
-  // Write markdown version
-  const markdown = renderSummaryToMarkdown(result, projectName);
-  writeFileSync(paths.summary, markdown.full + '\n');
-
-  // Trim the log
-  writeFileSync(paths.log, entriesToKeep.join('\n') + (entriesToKeep.length ? '\n' : ''));
+  // Re-read the log to preserve any entries appended during summarization
+  const currentLogContent = readFileSync(paths.log, 'utf-8').trim();
+  const currentLines = currentLogContent ? currentLogContent.split('\n').filter(l => l) : [];
+  const remainingLines = currentLines.slice(summarizeCount);
+  writeFileSync(paths.log, remainingLines.join('\n') + (remainingLines.length ? '\n' : ''));
 
   console.log(JSON.stringify({
     project: projectName,
     status: 'success',
     summarized: entriesToSummarize.length,
-    kept: entriesToKeep.length,
+    kept: remainingLines.length,
     summaryUpdated: result.lastUpdated
   }));
 

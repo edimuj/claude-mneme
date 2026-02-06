@@ -13,7 +13,7 @@
  */
 
 import { readFileSync, existsSync } from 'fs';
-import { ensureMemoryDirs, loadConfig, appendLogEntry, extractiveSummarize } from './utils.mjs';
+import { ensureMemoryDirs, loadConfig, appendLogEntry, extractiveSummarize, logError } from './utils.mjs';
 
 // Read hook input from stdin
 let input = '';
@@ -24,7 +24,7 @@ process.stdin.on('end', () => {
     const hookData = JSON.parse(input);
     processStop(hookData);
   } catch (e) {
-    // Silent fail - don't block Claude Code
+    logError(e, 'stop-capture');
     process.exit(0);
   }
 });

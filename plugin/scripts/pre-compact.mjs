@@ -11,11 +11,11 @@
  * All behavior is configurable via ~/.claude-mneme/config.json under "preCompact"
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, unlinkSync } from 'fs';
 import { join, dirname } from 'path';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
-import { ensureDeps, ensureMemoryDirs, loadConfig, getProjectName, flushPendingLog, appendLogEntry } from './utils.mjs';
+import { ensureDeps, ensureMemoryDirs, loadConfig, getProjectName, flushPendingLog, appendLogEntry, logError } from './utils.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -180,7 +180,7 @@ function extractTodos(transcript, maxItems) {
   const todos = [];
   const todoPatterns = [
     /(?:TODO|FIXME|HACK|XXX):\s*(.{10,100})/gi,
-    /(?:need to|should|must|have to)\s+(.{10,100})/gi,
+    /(?:we |you |I )?(?:need to|should|must|have to)\s+((?:add|fix|update|create|remove|implement|refactor|change|move|rename|delete|migrate|test|check|verify|ensure|resolve|handle|configure|set up|clean up)\b.{5,100})/gi,
     /(?:next step|action item|follow.?up):\s*(.{10,100})/gi,
   ];
 
@@ -288,9 +288,9 @@ Example: ["Decided to use TypeScript for type safety", "Fixed auth bug by adding
 }
 
 /**
- * Save transcript snapshot
+ * Save transcript snapshot, rotating old snapshots to keep at most maxCount.
  */
-function saveSnapshot(transcript, paths, trigger) {
+function saveSnapshot(transcript, paths, trigger, maxCount = 10) {
   const snapshotDir = join(paths.project, 'snapshots');
   if (!existsSync(snapshotDir)) {
     mkdirSync(snapshotDir, { recursive: true });
@@ -301,6 +301,20 @@ function saveSnapshot(transcript, paths, trigger) {
 
   const content = transcript.map(e => JSON.stringify(e)).join('\n');
   writeFileSync(snapshotPath, content + '\n');
+
+  // Rotate: keep only the most recent maxCount snapshots
+  try {
+    const files = readdirSync(snapshotDir)
+      .filter(f => f.startsWith('pre-compact-') && f.endsWith('.jsonl'))
+      .sort(); // Lexicographic sort works because timestamps are ISO-formatted
+    if (files.length > maxCount) {
+      for (const old of files.slice(0, files.length - maxCount)) {
+        unlinkSync(join(snapshotDir, old));
+      }
+    }
+  } catch (e) {
+    logError(e, 'pre-compact:snapshotRotation');
+  }
 
   console.error(`[claude-mneme] Saved transcript snapshot: ${snapshotPath}`);
   return snapshotPath;
@@ -432,7 +446,9 @@ async function processPreCompact(hookData) {
       if (existsSync(extractedPath)) {
         try {
           extractions = JSON.parse(readFileSync(extractedPath, 'utf-8'));
-        } catch {}
+        } catch (e) {
+          logError(e, 'pre-compact:extracted-context.json');
+        }
       }
 
       extractions.push(extracted);

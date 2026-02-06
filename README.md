@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.5.2-blue" alt="Version">
+  <img src="https://img.shields.io/badge/version-2.6.0-blue" alt="Version">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
   <img src="https://img.shields.io/badge/node-%3E%3D18-brightgreen" alt="Node">
   <img src="https://img.shields.io/badge/claude--code-plugin-orange" alt="Claude Code Plugin">
@@ -349,7 +349,8 @@ To reduce noise, Mneme automatically filters:
         ├── remembered.json        # Persistent /remember entries
         ├── entities.json          # Indexed entities (files, functions)
         ├── .cache.json            # Parsed data cache
-        └── .last-session          # Timestamp for git tracking
+        ├── .last-session          # Timestamp for git tracking
+        └── snapshots/             # Transcript snapshots (if enabled)
 ```
 
 ## Sync Server
@@ -442,10 +443,11 @@ Create `~/.mneme-server/config.json` on the server:
 
 | Option           | Default           | Description                         |
 |------------------|-------------------|-------------------------------------|
-| `port`           | `3847`            | Port to listen on                   |
-| `dataDir`        | `~/.mneme-server` | Where to store project data         |
-| `apiKeys`        | `[]`              | API keys for auth (empty = no auth) |
-| `lockTTLMinutes` | `30`              | Lock expiration time                |
+| `port`                | `3847`            | Port to listen on                       |
+| `dataDir`             | `~/.mneme-server` | Where to store project data             |
+| `apiKeys`             | `[]`              | API keys for auth (empty = no auth)     |
+| `lockTTLMinutes`      | `30`              | Lock expiration time                    |
+| `rateLimitPerMinute`  | `120`             | Max requests per IP per minute          |
 
 </details>
 

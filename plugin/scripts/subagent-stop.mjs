@@ -7,8 +7,8 @@
  * Note: Claude Code passes transcript_path (file path), not direct output
  */
 
-import { readFileSync, existsSync } from 'fs';
-import { ensureMemoryDirs, loadConfig, appendLogEntry, extractiveSummarize } from './utils.mjs';
+import { readFileSync, existsSync, openSync, readSync, closeSync, statSync } from 'fs';
+import { ensureMemoryDirs, loadConfig, appendLogEntry, extractiveSummarize, logError } from './utils.mjs';
 
 // Read hook input from stdin
 let input = '';
@@ -19,7 +19,7 @@ process.stdin.on('end', () => {
     const hookData = JSON.parse(input);
     processSubagentStop(hookData);
   } catch (e) {
-    // Silent fail - don't block Claude Code
+    logError(e, 'subagent-stop');
     process.exit(0);
   }
 });
@@ -82,16 +82,33 @@ function extractTextContent(content) {
  * Prevents duplicate logging when both stop-capture and subagent-stop fire.
  * Checks both main log and pending file.
  */
+function readLastLines(filePath, count) {
+  try {
+    const stat = statSync(filePath);
+    if (stat.size === 0) return [];
+    const readSize = Math.min(stat.size, 4096);
+    const buf = Buffer.alloc(readSize);
+    const fd = openSync(filePath, 'r');
+    readSync(fd, buf, 0, readSize, stat.size - readSize);
+    closeSync(fd);
+    const lines = buf.toString('utf-8').trim().split('\n');
+    return lines.slice(-count);
+  } catch {
+    return [];
+  }
+}
+
 function isDuplicateOfRecentResponse(content, logPath) {
   const pendingPath = logPath.replace('.jsonl', '.pending.jsonl');
   const filesToCheck = [logPath, pendingPath].filter(f => existsSync(f));
 
   const now = Date.now();
   for (const filePath of filesToCheck) {
-    try {
-      const lines = readFileSync(filePath, 'utf-8').trim().split('\n');
-      for (const line of lines.slice(-3)) {
-        if (!line) continue;
+    // Read only the tail of the file (last ~4KB) instead of the entire log
+    const lastLines = readLastLines(filePath, 3);
+    for (const line of lastLines) {
+      if (!line) continue;
+      try {
         const entry = JSON.parse(line);
         if (entry.type === 'response' && (now - new Date(entry.ts).getTime()) < 30000) {
           const a = content.substring(0, 100).toLowerCase();
@@ -100,8 +117,8 @@ function isDuplicateOfRecentResponse(content, logPath) {
             return true;
           }
         }
-      }
-    } catch {}
+      } catch {}
+    }
   }
   return false;
 }

@@ -10,11 +10,13 @@
 
 import { readFileSync, writeFileSync } from 'fs';
 import { existsSync } from 'fs';
-import { ensureMemoryDirs, getProjectName } from './utils.mjs';
+import { ensureMemoryDirs, getProjectName, invalidateCache, logError } from './utils.mjs';
 
 const cwd = process.cwd();
 const paths = ensureMemoryDirs(cwd);
 const projectName = getProjectName(cwd);
+
+const VALID_TYPES = ['fact', 'project', 'preference', 'note'];
 
 const args = process.argv.slice(2);
 const type = args[0] || 'note';
@@ -22,7 +24,12 @@ const content = args.slice(1).join(' ');
 
 if (!content) {
   console.error('Usage: node mem-add.mjs <type> <content>');
-  console.error('Types: fact, project, preference, note');
+  console.error(`Types: ${VALID_TYPES.join(', ')}`);
+  process.exit(1);
+}
+
+if (!VALID_TYPES.includes(type)) {
+  console.error(`Invalid type "${type}". Must be one of: ${VALID_TYPES.join(', ')}`);
   process.exit(1);
 }
 
@@ -31,7 +38,8 @@ let entries = [];
 if (existsSync(paths.remembered)) {
   try {
     entries = JSON.parse(readFileSync(paths.remembered, 'utf-8'));
-  } catch {
+  } catch (e) {
+    logError(e, 'mem-add:remembered.json');
     entries = [];
   }
 }
@@ -44,4 +52,5 @@ entries.push({
 });
 
 writeFileSync(paths.remembered, JSON.stringify(entries, null, 2) + '\n');
+invalidateCache(cwd);
 console.log(`Remembered for "${projectName}": [${type}] ${content}`);

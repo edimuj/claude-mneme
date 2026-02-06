@@ -13,10 +13,10 @@
  */
 
 import { createServer } from 'http';
-import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, readdirSync, statSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, readdirSync, statSync, openSync, closeSync, writeSync, constants as fsConstants } from 'fs';
 import { join, basename } from 'path';
 import { homedir } from 'os';
-import { randomUUID } from 'crypto';
+import { randomUUID, timingSafeEqual } from 'crypto';
 
 // ============================================================================
 // Configuration
@@ -26,7 +26,8 @@ const DEFAULT_CONFIG = {
   port: 3847,
   dataDir: join(homedir(), '.mneme-server'),
   apiKeys: [],           // Empty = no auth required
-  lockTTLMinutes: 30
+  lockTTLMinutes: 30,
+  allowedOrigins: []     // Empty = no CORS (CLI-only); set to ['*'] to allow all
 };
 
 function loadConfig() {
@@ -75,10 +76,57 @@ function getLockPath(projectId) {
   return join(getProjectDir(projectId), '.lock.json');
 }
 
+const MAX_BODY_SIZE = 10 * 1024 * 1024; // 10 MB
+
+// ============================================================================
+// Rate Limiting
+// ============================================================================
+
+const rateLimitState = new Map(); // clientIP -> { count, windowStart }
+const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
+const RATE_LIMIT_MAX_REQUESTS = config.rateLimitPerMinute || 120;
+
+function checkRateLimit(req, res) {
+  const clientIP = req.socket.remoteAddress || 'unknown';
+  const now = Date.now();
+  let state = rateLimitState.get(clientIP);
+
+  if (!state || now - state.windowStart > RATE_LIMIT_WINDOW_MS) {
+    state = { count: 0, windowStart: now };
+    rateLimitState.set(clientIP, state);
+  }
+
+  state.count++;
+
+  if (state.count > RATE_LIMIT_MAX_REQUESTS) {
+    sendError(res, 429, 'Too many requests');
+    return false;
+  }
+
+  return true;
+}
+
+// Periodically clean up stale rate limit entries (every 5 minutes)
+setInterval(() => {
+  const cutoff = Date.now() - RATE_LIMIT_WINDOW_MS * 2;
+  for (const [ip, state] of rateLimitState) {
+    if (state.windowStart < cutoff) rateLimitState.delete(ip);
+  }
+}, 5 * 60 * 1000).unref();
+
 function parseBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = [];
-    req.on('data', chunk => chunks.push(chunk));
+    let totalSize = 0;
+    req.on('data', chunk => {
+      totalSize += chunk.length;
+      if (totalSize > MAX_BODY_SIZE) {
+        req.destroy();
+        reject(new Error('Request body too large'));
+        return;
+      }
+      chunks.push(chunk);
+    });
     req.on('end', () => {
       const body = Buffer.concat(chunks).toString();
       if (!body) {
@@ -120,7 +168,14 @@ function checkAuth(req, res) {
   }
 
   const token = authHeader.slice(7);
-  if (!config.apiKeys.includes(token)) {
+  const tokenBuf = Buffer.from(token);
+  const isValid = config.apiKeys.some(key => {
+    const keyBuf = Buffer.from(key);
+    if (tokenBuf.length !== keyBuf.length) return false;
+    return timingSafeEqual(tokenBuf, keyBuf);
+  });
+
+  if (!isValid) {
     sendError(res, 403, 'Invalid API key');
     return false;
   }
@@ -157,10 +212,12 @@ function getLock(projectId) {
 function acquireLock(projectId, clientId) {
   const existingLock = getLock(projectId);
 
+  // If lock is held by a different client, deny
   if (existingLock && existingLock.clientId !== clientId) {
     return { success: false, lock: existingLock };
   }
 
+  const lockPath = getLockPath(projectId);
   const now = new Date();
   const expiresAt = new Date(now.getTime() + config.lockTTLMinutes * 60 * 1000);
 
@@ -170,7 +227,26 @@ function acquireLock(projectId, clientId) {
     expiresAt: expiresAt.toISOString()
   };
 
-  writeFileSync(getLockPath(projectId), JSON.stringify(lock, null, 2));
+  const lockJson = JSON.stringify(lock, null, 2);
+
+  if (existingLock) {
+    // Re-acquiring own lock (extend) — safe to overwrite
+    writeFileSync(lockPath, lockJson);
+  } else {
+    // New lock — use atomic create to prevent race with another request
+    try {
+      const fd = openSync(lockPath, fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_WRONLY);
+      writeSync(fd, Buffer.from(lockJson));
+      closeSync(fd);
+    } catch (err) {
+      if (err.code === 'EEXIST') {
+        // Another request won the race — re-read and report conflict
+        const raceLock = getLock(projectId);
+        return { success: false, lock: raceLock };
+      }
+      throw err;
+    }
+  }
 
   return { success: true, lock };
 }
@@ -219,7 +295,6 @@ function heartbeatLock(projectId, clientId) {
 const SYNCABLE_FILES = [
   'log.jsonl',
   'summary.json',
-  'summary.md',
   'remembered.json',
   'entities.json'
 ];
@@ -317,14 +392,25 @@ function parseRoute(url) {
 }
 
 async function handleRequest(req, res) {
-  // CORS headers
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Client-Id');
+  // CORS headers — only set if allowedOrigins is configured
+  const origin = req.headers['origin'];
+  if (config.allowedOrigins.length > 0 && origin) {
+    const allowed = config.allowedOrigins.includes('*') || config.allowedOrigins.includes(origin);
+    if (allowed) {
+      res.setHeader('Access-Control-Allow-Origin', config.allowedOrigins.includes('*') ? '*' : origin);
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Client-Id');
+    }
+  }
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
     res.end();
+    return;
+  }
+
+  // Rate limiting
+  if (!checkRateLimit(req, res)) {
     return;
   }
 

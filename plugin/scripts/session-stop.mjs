@@ -27,5 +27,5 @@ main()
   .catch(err => {
     logError(err, 'session-stop');
     console.error(`[mneme] Error: ${err.message}`);
-    process.exit(1);
+    process.exit(0); // Exit 0 — memory is non-critical, don't block session lifecycle
   });

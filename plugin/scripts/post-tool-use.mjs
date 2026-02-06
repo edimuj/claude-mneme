@@ -7,10 +7,27 @@
 
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { join } from 'path';
-import { ensureMemoryDirs, appendLogEntry } from './utils.mjs';
+import { ensureMemoryDirs, appendLogEntry, logError } from './utils.mjs';
 
-// Track last logged todos to avoid duplicates
-let lastTodoHash = '';
+/**
+ * Read the persisted todo hash from disk (survives across process invocations)
+ */
+function readLastTodoHash(projectDir) {
+  const hashPath = join(projectDir, '.last-todo-hash');
+  try {
+    return existsSync(hashPath) ? readFileSync(hashPath, 'utf-8').trim() : '';
+  } catch {
+    return '';
+  }
+}
+
+function writeLastTodoHash(projectDir, hash) {
+  try {
+    writeFileSync(join(projectDir, '.last-todo-hash'), hash);
+  } catch (e) {
+    logError(e, 'post-tool-use:writeLastTodoHash');
+  }
+}
 
 // Read hook input from stdin
 let input = '';
@@ -21,7 +38,7 @@ process.stdin.on('end', () => {
     const hookData = JSON.parse(input);
     processToolUse(hookData);
   } catch (e) {
-    // Silent fail - don't block Claude Code
+    logError(e, 'post-tool-use');
     process.exit(0);
   }
 });
@@ -53,8 +70,8 @@ function extractCommitMessage(command) {
     return match[1].trim();
   }
 
-  // HEREDOC pattern - extract first line of the message
-  match = command.match(/git\s+commit.*<<['"]?EOF['"]?\s*\n([^\n]+)/);
+  // HEREDOC pattern: git commit -m "$(cat <<'EOF'\nmessage\n...\nEOF\n)"
+  match = command.match(/<<['"]?EOF['"]?\s*\n\s*([^\n]+)/);
   if (match) {
     return match[1].trim();
   }
@@ -88,10 +105,11 @@ function processTodoWrite(hookData) {
   const todoHash = JSON.stringify({ inProgress, completed: completed.length, pending: pending.length });
 
   // Only log if there's a meaningful change (new in_progress task or completions)
-  if (todoHash === lastTodoHash) {
+  const paths = ensureMemoryDirs(cwd || process.cwd());
+  if (todoHash === readLastTodoHash(paths.project)) {
     return false;
   }
-  lastTodoHash = todoHash;
+  writeLastTodoHash(paths.project, todoHash);
 
   // Build content focusing on what's being worked on
   const parts = [];
@@ -224,8 +242,6 @@ function processTaskUpdate(hookData) {
       task.startedAt = new Date().toISOString();
     }
 
-    writeTaskTracking(paths.project, tracking);
-
     // Log completion with outcome
     if (status === 'completed') {
       const resolvedSubject = subject || task.subject;
@@ -240,13 +256,16 @@ function processTaskUpdate(hookData) {
         duration: task.startedAt ? Date.now() - new Date(task.startedAt).getTime() : null
       };
 
-      // Clean up completed task
+      // Clean up completed task and write once
       delete tracking.tasks[String(taskId)];
       writeTaskTracking(paths.project, tracking);
 
       appendLogEntry(entry, cwd || process.cwd());
       return true;
     }
+
+    // Non-completion status update (e.g., in_progress)
+    writeTaskTracking(paths.project, tracking);
   } else {
     // Task not in tracking - create it
     tracking.tasks[String(taskId)] = {

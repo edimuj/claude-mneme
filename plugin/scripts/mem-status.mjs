@@ -12,7 +12,7 @@
  * Usage: node mem-status.mjs [--clear-errors]
  */
 
-import { existsSync, statSync, accessSync, constants } from 'fs';
+import { existsSync, readFileSync, statSync, accessSync, constants } from 'fs';
 import { execFileSync } from 'child_process';
 import {
   MEMORY_BASE,
@@ -169,7 +169,7 @@ try {
   let rememberedCount = 0;
   if (rememberedExists) {
     try {
-      const content = require('fs').readFileSync(paths.remembered, 'utf-8');
+      const content = readFileSync(paths.remembered, 'utf-8');
       rememberedCount = JSON.parse(content).length;
     } catch {}
   }
@@ -291,7 +291,7 @@ function checkWritable(dir) {
 
 function countLines(filePath) {
   try {
-    const content = require('fs').readFileSync(filePath, 'utf-8').trim();
+    const content = readFileSync(filePath, 'utf-8').trim();
     if (!content) return 0;
     return content.split('\n').filter(l => l).length;
   } catch {
