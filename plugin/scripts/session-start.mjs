@@ -226,13 +226,19 @@ async function main() {
                           (relevantEntities.functions?.length > 0);
       if (hasEntities) {
         console.log('\n## Recently Active\n');
+        const formatEntity = (e) => {
+          let line = `\`${e.name}\``;
+          if (e.mentions > 1) line += ` (${e.mentions}x)`;
+          if (e.recentContext) line += ` — ${e.recentContext}`;
+          return `- ${line}`;
+        };
         if (relevantEntities.files?.length > 0) {
-          const topFiles = relevantEntities.files.slice(0, maxFiles);
-          console.log('**Files:** ' + topFiles.map(f => `\`${f.name}\``).join(', '));
+          console.log('**Files:**');
+          relevantEntities.files.slice(0, maxFiles).forEach(f => console.log(formatEntity(f)));
         }
         if (relevantEntities.functions?.length > 0) {
-          const topFunctions = relevantEntities.functions.slice(0, maxFunctions);
-          console.log('**Functions:** ' + topFunctions.map(f => `\`${f.name}\``).join(', '));
+          console.log('**Functions:**');
+          relevantEntities.functions.slice(0, maxFunctions).forEach(f => console.log(formatEntity(f)));
         }
       }
     }
