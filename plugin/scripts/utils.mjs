@@ -1316,7 +1316,8 @@ export function getRelevantEntities(cwd = process.cwd(), recentFiles = []) {
       name: s.name,
       mentions: s.data.mentions,
       lastSeen: s.data.lastSeen,
-      recentContext: s.data.contexts[s.data.contexts.length - 1]?.summary
+      recentContext: s.data.contexts[s.data.contexts.length - 1]?.summary,
+      contextTypes: [...new Set(s.data.contexts.map(c => c.type).filter(Boolean))]
     }));
   }
 

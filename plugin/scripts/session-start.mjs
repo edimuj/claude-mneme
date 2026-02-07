@@ -226,8 +226,11 @@ async function main() {
                           (relevantEntities.functions?.length > 0);
       if (hasEntities) {
         console.log('\n## Recently Active\n');
+        const badgeMap = { commit: 'modified', task: 'worked on', prompt: 'discussed', agent: 'worked on', response: 'discussed' };
         const formatEntity = (e) => {
           let line = `\`${e.name}\``;
+          const badges = [...new Set((e.contextTypes || []).map(t => badgeMap[t]).filter(Boolean))];
+          if (badges.length > 0) line += ` [${badges.join(', ')}]`;
           if (e.mentions > 1) line += ` (${e.mentions}x)`;
           if (e.recentContext) line += ` — ${e.recentContext}`;
           return `- ${line}`;
