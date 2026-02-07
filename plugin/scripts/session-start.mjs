@@ -156,21 +156,55 @@ async function main() {
   // Output - Hierarchical injection
   // ============================================================================
 
+  // Read handoff from previous session (if recent)
+  let handoff = null;
+  const lsConfig = sections.lastSession || { enabled: true };
+  if (lsConfig.enabled !== false && existsSync(paths.handoff)) {
+    try {
+      const data = JSON.parse(readFileSync(paths.handoff, 'utf-8'));
+      const maxAgeMs = 48 * 60 * 60 * 1000;
+      if (data.ts && (Date.now() - new Date(data.ts).getTime()) < maxAgeMs) {
+        handoff = data;
+      }
+    } catch {}
+  }
+
   const hasContent = summaryParts.high || summaryParts.medium ||
                      remembered.length > 0 || gitChanges ||
-                     recentEntries.length > 0 || relevantEntities;
+                     recentEntries.length > 0 || relevantEntities || handoff;
 
   if (hasContent) {
     console.log(`<claude-mneme project="${escapeAttr(projectName)}">`);
+
+    // HANDOFF from previous session (highest immediate value)
+    if (handoff) {
+      console.log('\n## Last Session\n');
+      if (handoff.workingOn) console.log(`**Working on:** ${handoff.workingOn}`);
+      if (handoff.lastDone) console.log(`**Done:** ${handoff.lastDone}`);
+      if (handoff.openItems?.length > 0) {
+        console.log(`**Open:** ${handoff.openItems.join(', ')}`);
+      }
+    }
+
+    // LESSONS LEARNED - high visibility to avoid repeating mistakes
+    const lessons = remembered.filter(r => r.type === 'lesson');
+    const otherRemembered = remembered.filter(r => r.type !== 'lesson');
+
+    if (lessons.length > 0) {
+      console.log('\n## Lessons Learned\n');
+      for (const item of lessons) {
+        console.log(`- ${item.content}`);
+      }
+    }
 
     // HIGH PRIORITY SECTION
     if (summaryParts.high) {
       console.log(summaryParts.high);
     }
 
-    if (remembered.length > 0) {
+    if (otherRemembered.length > 0) {
       console.log('\n## Remembered\n');
-      for (const item of remembered) {
+      for (const item of otherRemembered) {
         console.log(`- [${item.type}] ${item.content}`);
       }
     }
