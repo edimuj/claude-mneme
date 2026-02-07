@@ -7,7 +7,7 @@
 
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { join } from 'path';
-import { ensureMemoryDirs, appendLogEntry, logError } from './utils.mjs';
+import { ensureMemoryDirs, appendLogEntry, withFileLock, logError } from './utils.mjs';
 
 /**
  * Read the persisted todo hash from disk (survives across process invocations)
@@ -180,19 +180,22 @@ function processTaskCreate(hookData) {
   }
 
   const paths = ensureMemoryDirs(cwd || process.cwd());
-  const tracking = readTaskTracking(paths.project);
+  const taskLockPath = join(paths.project, 'active-tasks.json.lock');
+  const result = withFileLock(taskLockPath, () => {
+    const tracking = readTaskTracking(paths.project);
 
-  // Store task with lifecycle metadata
-  tracking.tasks = tracking.tasks || {};
-  tracking.tasks[String(tracking.nextId)] = {
-    subject,
-    status: 'pending',
-    createdAt: new Date().toISOString()
-  };
-  tracking.nextId++;
+    tracking.tasks = tracking.tasks || {};
+    tracking.tasks[String(tracking.nextId)] = {
+      subject,
+      status: 'pending',
+      createdAt: new Date().toISOString()
+    };
+    tracking.nextId++;
 
-  writeTaskTracking(paths.project, tracking);
-  return true;
+    writeTaskTracking(paths.project, tracking);
+    return true;
+  }, 5);
+  return result === true;
 }
 
 /**
@@ -207,77 +210,82 @@ function processTaskUpdate(hookData) {
     return false;
   }
 
-  const paths = ensureMemoryDirs(cwd || process.cwd());
-  const tracking = readTaskTracking(paths.project);
-  tracking.tasks = tracking.tasks || {};
+  const effectiveCwd = cwd || process.cwd();
+  const paths = ensureMemoryDirs(effectiveCwd);
+  const taskLockPath = join(paths.project, 'active-tasks.json.lock');
 
-  const task = tracking.tasks[String(taskId)];
+  // Collect log entries to append outside the lock (appendLogEntry has its own locking)
+  let logEntry = null;
 
-  // Handle deleted tasks - log as abandoned if was in progress
-  if (status === 'deleted') {
-    if (task && task.status === 'in_progress') {
-      // Task was abandoned (deleted while in progress)
-      const entry = {
-        ts: new Date().toISOString(),
-        type: 'task',
-        action: 'abandoned',
-        outcome: 'abandoned',
-        subject: task.subject,
-        duration: task.createdAt ? Date.now() - new Date(task.createdAt).getTime() : null
-      };
-      appendLogEntry(entry, cwd || process.cwd());
-    }
-    delete tracking.tasks[String(taskId)];
-    writeTaskTracking(paths.project, tracking);
-    return task?.status === 'in_progress'; // Return true if we logged abandonment
-  }
+  const result = withFileLock(taskLockPath, () => {
+    const tracking = readTaskTracking(paths.project);
+    tracking.tasks = tracking.tasks || {};
 
-  // Update task status
-  if (task) {
-    const previousStatus = task.status;
-    task.status = status;
+    const task = tracking.tasks[String(taskId)];
 
-    // Track when task started
-    if (status === 'in_progress' && !task.startedAt) {
-      task.startedAt = new Date().toISOString();
-    }
-
-    // Log completion with outcome
-    if (status === 'completed') {
-      const resolvedSubject = subject || task.subject;
-      if (!resolvedSubject) return false;
-
-      const entry = {
-        ts: new Date().toISOString(),
-        type: 'task',
-        action: 'completed',
-        outcome: 'completed',
-        subject: resolvedSubject,
-        duration: task.startedAt ? Date.now() - new Date(task.startedAt).getTime() : null
-      };
-
-      // Clean up completed task and write once
+    // Handle deleted tasks - log as abandoned if was in progress
+    if (status === 'deleted') {
+      if (task && task.status === 'in_progress') {
+        logEntry = {
+          ts: new Date().toISOString(),
+          type: 'task',
+          action: 'abandoned',
+          outcome: 'abandoned',
+          subject: task.subject,
+          duration: task.createdAt ? Date.now() - new Date(task.createdAt).getTime() : null
+        };
+      }
       delete tracking.tasks[String(taskId)];
       writeTaskTracking(paths.project, tracking);
-
-      appendLogEntry(entry, cwd || process.cwd());
-      return true;
+      return task?.status === 'in_progress';
     }
 
-    // Non-completion status update (e.g., in_progress)
-    writeTaskTracking(paths.project, tracking);
-  } else {
-    // Task not in tracking - create it
-    tracking.tasks[String(taskId)] = {
-      subject: subject || `Task ${taskId}`,
-      status: status || 'pending',
-      createdAt: new Date().toISOString(),
-      startedAt: status === 'in_progress' ? new Date().toISOString() : null
-    };
-    writeTaskTracking(paths.project, tracking);
+    // Update task status
+    if (task) {
+      task.status = status;
+
+      if (status === 'in_progress' && !task.startedAt) {
+        task.startedAt = new Date().toISOString();
+      }
+
+      if (status === 'completed') {
+        const resolvedSubject = subject || task.subject;
+        if (!resolvedSubject) return false;
+
+        logEntry = {
+          ts: new Date().toISOString(),
+          type: 'task',
+          action: 'completed',
+          outcome: 'completed',
+          subject: resolvedSubject,
+          duration: task.startedAt ? Date.now() - new Date(task.startedAt).getTime() : null
+        };
+
+        delete tracking.tasks[String(taskId)];
+        writeTaskTracking(paths.project, tracking);
+        return true;
+      }
+
+      writeTaskTracking(paths.project, tracking);
+    } else {
+      tracking.tasks[String(taskId)] = {
+        subject: subject || `Task ${taskId}`,
+        status: status || 'pending',
+        createdAt: new Date().toISOString(),
+        startedAt: status === 'in_progress' ? new Date().toISOString() : null
+      };
+      writeTaskTracking(paths.project, tracking);
+    }
+
+    return false;
+  }, 5);
+
+  // Append log entry outside the task lock to avoid nested lock contention
+  if (logEntry) {
+    appendLogEntry(logEntry, effectiveCwd);
   }
 
-  return false;
+  return result === true;
 }
 
 /**

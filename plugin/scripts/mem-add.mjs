@@ -10,7 +10,7 @@
 
 import { readFileSync, writeFileSync } from 'fs';
 import { existsSync } from 'fs';
-import { ensureMemoryDirs, getProjectName, invalidateCache, logError } from './utils.mjs';
+import { ensureMemoryDirs, getProjectName, invalidateCache, withFileLock, logError } from './utils.mjs';
 
 const cwd = process.cwd();
 const paths = ensureMemoryDirs(cwd);
@@ -33,24 +33,27 @@ if (!VALID_TYPES.includes(type)) {
   process.exit(1);
 }
 
-// Read existing entries
-let entries = [];
-if (existsSync(paths.remembered)) {
-  try {
-    entries = JSON.parse(readFileSync(paths.remembered, 'utf-8'));
-  } catch (e) {
-    logError(e, 'mem-add:remembered.json');
-    entries = [];
+// Read-modify-write under lock to prevent lost updates from concurrent sessions
+const lockPath = paths.remembered + '.lock';
+withFileLock(lockPath, () => {
+  let entries = [];
+  if (existsSync(paths.remembered)) {
+    try {
+      entries = JSON.parse(readFileSync(paths.remembered, 'utf-8'));
+    } catch (e) {
+      logError(e, 'mem-add:remembered.json');
+      entries = [];
+    }
   }
-}
 
-// Add new entry
-entries.push({
-  ts: new Date().toISOString(),
-  type,
-  content
-});
+  entries.push({
+    ts: new Date().toISOString(),
+    type,
+    content
+  });
 
-writeFileSync(paths.remembered, JSON.stringify(entries, null, 2) + '\n');
+  writeFileSync(paths.remembered, JSON.stringify(entries, null, 2) + '\n');
+}, 10);
+
 invalidateCache(cwd);
 console.log(`Remembered for "${projectName}": [${type}] ${content}`);

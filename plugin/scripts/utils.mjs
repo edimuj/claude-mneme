@@ -40,7 +40,7 @@ export function getProjectName(cwd = process.cwd()) {
 /**
  * Get the project-specific memory directory
  */
-export function getProjectMemoryDir(cwd = process.cwd()) {
+function getProjectMemoryDir(cwd = process.cwd()) {
   const projectName = getProjectName(cwd);
   // Sanitize project name for filesystem
   const safeName = projectName.replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -481,7 +481,7 @@ export function loadConfig() {
  *      "Let me explain the changes." → removed
  * Only removes when there is substantive content afterwards.
  */
-export function stripLeadIns(text) {
+function stripLeadIns(text) {
   if (!text) return text;
   let result = text;
 
@@ -796,7 +796,7 @@ export function renderSummaryToMarkdown(summary, projectName, options = {}) {
 /**
  * Legacy wrapper for backward compatibility
  */
-export function renderSummaryFull(summary, projectName) {
+function renderSummaryFull(summary, projectName) {
   const result = renderSummaryToMarkdown(summary, projectName, {});
   return result.full;
 }
@@ -1113,7 +1113,7 @@ export function emptyEntityIndex() {
  * @param {string} cwd - Working directory
  * @param {object} config - Full config
  */
-export function updateEntityIndex(entry, cwd = process.cwd(), config = {}) {
+function updateEntityIndex(entry, cwd = process.cwd(), config = {}) {
   const eeConfig = config.entityExtraction || {};
   if (eeConfig.enabled === false) return;
 
@@ -1608,7 +1608,17 @@ export function flushPendingLog(cwd = process.cwd(), throttleMs = 0) {
   try {
     const pending = readFileSync(flushingPath, 'utf-8').trim();
     if (pending) {
-      appendFileSync(paths.log, pending + '\n');
+      const logWriteLock = paths.log + '.wlock';
+      const lockResult = withFileLock(logWriteLock, () => {
+        appendFileSync(paths.log, pending + '\n');
+        return true;
+      }, 30);
+
+      if (lockResult === undefined) {
+        // Lock held by summarizer — restore flushing file so entries aren't lost
+        try { renameSync(flushingPath, pendingPath); } catch {}
+        return;
+      }
     }
 
     // Remove the flushing file now that entries are safely in the main log

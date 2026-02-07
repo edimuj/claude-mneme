@@ -168,7 +168,7 @@ class HttpClient {
 /**
  * SyncClient handles all communication with the mneme-server
  */
-export class SyncClient {
+class SyncClient {
   constructor(config, cwd) {
     const syncConfig = config.sync || {};
 

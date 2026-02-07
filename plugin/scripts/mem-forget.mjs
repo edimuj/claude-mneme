@@ -9,7 +9,7 @@
  */
 
 import { readFileSync, writeFileSync, existsSync } from 'fs';
-import { ensureDeps, ensureMemoryDirs, loadConfig, getProjectName, invalidateCache } from './utils.mjs';
+import { ensureDeps, ensureMemoryDirs, loadConfig, getProjectName, invalidateCache, withFileLock } from './utils.mjs';
 
 const cwd = process.cwd();
 const paths = ensureMemoryDirs(cwd);
@@ -77,28 +77,35 @@ if (mode === '--remove') {
     process.exit(1);
   }
 
-  const entries = readEntries();
-  if (entries.length === 0) {
+  // Read-modify-write under lock to prevent lost updates from concurrent sessions
+  const lockPath = paths.remembered + '.lock';
+  const removed = withFileLock(lockPath, () => {
+    const entries = readEntries();
+    if (entries.length === 0) {
+      return null;
+    }
+
+    const invalid = indices.filter(i => i < 0 || i >= entries.length);
+    if (invalid.length > 0) {
+      console.error(`Invalid indices: ${invalid.join(', ')}. Valid range: 0-${entries.length - 1}`);
+      process.exit(1);
+    }
+
+    const removedItems = [];
+    const sortedIndices = [...indices].sort((a, b) => b - a);
+    for (const idx of sortedIndices) {
+      removedItems.unshift(entries[idx]);
+      entries.splice(idx, 1);
+    }
+
+    writeEntries(entries);
+    return removedItems;
+  }, 10);
+
+  if (!removed || removed.length === 0) {
     console.log('No remembered items to remove.');
     process.exit(0);
   }
-
-  // Validate indices
-  const invalid = indices.filter(i => i < 0 || i >= entries.length);
-  if (invalid.length > 0) {
-    console.error(`Invalid indices: ${invalid.join(', ')}. Valid range: 0-${entries.length - 1}`);
-    process.exit(1);
-  }
-
-  // Remove entries (work backwards to preserve indices)
-  const removed = [];
-  const sortedIndices = [...indices].sort((a, b) => b - a);
-  for (const idx of sortedIndices) {
-    removed.unshift(entries[idx]);
-    entries.splice(idx, 1);
-  }
-
-  writeEntries(entries);
 
   console.log(`Removed ${removed.length} item(s) from "${projectName}":`);
   for (const entry of removed) {

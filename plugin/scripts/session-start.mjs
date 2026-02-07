@@ -9,10 +9,10 @@
  * - LOW priority: Recent log entries (limited to last few)
  */
 
-import { readFileSync, writeFileSync, existsSync, unlinkSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { execFileSync } from 'child_process';
 import { join } from 'path';
-import { ensureMemoryDirs, loadConfig, getProjectName, escapeAttr, formatEntry, renderSummaryToMarkdown, flushPendingLog, scoreEntriesByRelevance, getRelevantEntities, deduplicateEntries, readCachedData, logError, getErrorsSince } from './utils.mjs';
+import { ensureMemoryDirs, loadConfig, getProjectName, escapeAttr, formatEntry, renderSummaryToMarkdown, flushPendingLog, scoreEntriesByRelevance, getRelevantEntities, deduplicateEntries, readCachedData, withFileLock, logError, getErrorsSince } from './utils.mjs';
 import { pullIfEnabled, startHeartbeat } from './sync.mjs';
 
 async function main() {
@@ -32,9 +32,29 @@ async function main() {
     startHeartbeat(cwd, config);
   }
 
-  // Clean up task tracking — task IDs are session-scoped and reset each session
+  // Prune stale tasks (>24h) instead of deleting — avoids wiping another session's tracking
   const taskTrackingPath = join(paths.project, 'active-tasks.json');
-  try { if (existsSync(taskTrackingPath)) unlinkSync(taskTrackingPath); } catch {}
+  const taskLockPath = taskTrackingPath + '.lock';
+  try {
+    withFileLock(taskLockPath, () => {
+      if (!existsSync(taskTrackingPath)) return;
+      const data = JSON.parse(readFileSync(taskTrackingPath, 'utf-8'));
+      const tasks = data.tasks || {};
+      const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+      let pruned = false;
+      for (const [id, task] of Object.entries(tasks)) {
+        const ts = task.createdAt ? new Date(task.createdAt).getTime() : 0;
+        if (ts < cutoff) {
+          delete tasks[id];
+          pruned = true;
+        }
+      }
+      if (pruned) {
+        data.tasks = tasks;
+        writeFileSync(taskTrackingPath, JSON.stringify(data));
+      }
+    }, 5);
+  } catch {}
 
   // ============================================================================
   // Read all data using cache (avoids redundant file reads/parsing)
