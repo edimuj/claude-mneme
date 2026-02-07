@@ -174,7 +174,7 @@ function writeTaskTracking(projectDir, tracking) {
 function processTaskCreate(hookData) {
   const { tool_input, cwd } = hookData;
 
-  const { subject } = tool_input || {};
+  const { subject, description } = tool_input || {};
   if (!subject) {
     return false;
   }
@@ -185,11 +185,13 @@ function processTaskCreate(hookData) {
     const tracking = readTaskTracking(paths.project);
 
     tracking.tasks = tracking.tasks || {};
-    tracking.tasks[String(tracking.nextId)] = {
+    const task = {
       subject,
       status: 'pending',
       createdAt: new Date().toISOString()
     };
+    if (description) task.description = description;
+    tracking.tasks[String(tracking.nextId)] = task;
     tracking.nextId++;
 
     writeTaskTracking(paths.project, tracking);
@@ -234,6 +236,7 @@ function processTaskUpdate(hookData) {
           subject: task.subject,
           duration: task.createdAt ? Date.now() - new Date(task.createdAt).getTime() : null
         };
+        if (task.description) logEntry.description = task.description;
       }
       delete tracking.tasks[String(taskId)];
       writeTaskTracking(paths.project, tracking);
