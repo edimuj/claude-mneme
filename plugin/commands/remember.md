@@ -23,6 +23,7 @@ Types to use:
 - `project` - Project information and status
 - `fact` - Facts about the user or environment
 - `note` - General notes
+- `lesson` - Lessons learned, anti-patterns, approaches that failed — things to avoid repeating
 
 ## How it works
 
@@ -39,6 +40,7 @@ Let the user know this when saving, e.g.: "Saved. This will persist across all f
 2. Keep the content concise but complete
 3. Confirm what was saved and briefly explain persistence
 4. If ambiguous, default to `note` type
+5. Use `lesson` when the user describes something that didn't work, a mistake to avoid, or an anti-pattern discovered
 
 ## Examples
 
@@ -47,6 +49,12 @@ User: `/remember I prefer functional programming over OOP`
 
 User: `/remember working on a React Native app called GhostTube`
 -> Save as `project`: "Working on React Native app called GhostTube"
+
+User: `/remember don't use git reset --hard in this repo, it wipes untracked test fixtures`
+-> Save as `lesson`: "Don't use git reset --hard — it wipes untracked test fixtures"
+
+User: `/remember tried using Redis for caching but latency was worse than in-memory due to serialization overhead`
+-> Save as `lesson`: "Redis caching attempt failed — serialization overhead made it slower than in-memory"
 
 User: `/remember`
 -> Ask: "What would you like me to remember?"

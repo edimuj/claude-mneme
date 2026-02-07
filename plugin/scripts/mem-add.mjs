@@ -16,7 +16,7 @@ const cwd = process.cwd();
 const paths = ensureMemoryDirs(cwd);
 const projectName = getProjectName(cwd);
 
-const VALID_TYPES = ['fact', 'project', 'preference', 'note'];
+const VALID_TYPES = ['fact', 'project', 'preference', 'note', 'lesson'];
 
 const args = process.argv.slice(2);
 const type = args[0] || 'note';
