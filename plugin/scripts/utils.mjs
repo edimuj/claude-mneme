@@ -871,7 +871,7 @@ function renderSummaryFull(summary, projectName) {
 /**
  * Extract file paths from entry content
  */
-function extractFilePaths(entry, config = {}) {
+export function extractFilePaths(entry, config = {}) {
   const content = entry.content || entry.subject || '';
   const paths = [];
   const allowedExtensions = config.fileExtensions || [
@@ -917,7 +917,7 @@ function extractFilePaths(entry, config = {}) {
 /**
  * Check if a matched path is a false positive
  */
-function isFileFalsePositive(path) {
+export function isFileFalsePositive(path) {
   const lower = path.toLowerCase();
   // Exclude version numbers (1.0.0.js), URLs (http://), etc.
   if (/^\d+\.\d+/.test(path)) return true;
@@ -930,7 +930,7 @@ function isFileFalsePositive(path) {
 /**
  * Extract function/method names from entry content
  */
-function extractFunctionNames(entry, config = {}) {
+export function extractFunctionNames(entry, config = {}) {
   const content = entry.content || entry.subject || '';
   const functions = [];
   const minLength = config.minEntityLength || 3; // Functions should be at least 3 chars
@@ -999,7 +999,7 @@ function extractFunctionNames(entry, config = {}) {
 /**
  * Extract error messages from entry content
  */
-function extractErrorMessages(entry, config = {}) {
+export function extractErrorMessages(entry, config = {}) {
   const content = entry.content || entry.subject || '';
   const errors = [];
   const minLength = config.minEntityLength || 2;
@@ -1037,13 +1037,13 @@ function extractErrorMessages(entry, config = {}) {
 /**
  * Extract package/module names from entry content
  */
-function extractPackageNames(entry, config = {}) {
+export function extractPackageNames(entry, config = {}) {
   const content = entry.content || entry.subject || '';
   const packages = [];
   const minLength = config.minEntityLength || 2;
 
   // First, extract multi-package install commands
-  const installMatch = content.match(/(?:npm|yarn|pnpm)\s+(?:install|add|i)\s+([^\n.]+)/gi);
+  const installMatch = content.match(/(?:npm|yarn|pnpm)\s+(?:install|add|i)\s+([^\n]+)/gi);
   if (installMatch) {
     for (const cmd of installMatch) {
       // Extract all packages from the command (space-separated after the verb)
@@ -1092,7 +1092,7 @@ function extractPackageNames(entry, config = {}) {
 /**
  * Check if a string is a valid package name
  */
-function isValidPackageName(name, minLength = 2) {
+export function isValidPackageName(name, minLength = 2) {
   if (!name || name.length < minLength || name.length >= 60) return false;
   if (name.startsWith('./') || name.startsWith('../') || name.startsWith('/')) return false;
 
@@ -1249,7 +1249,7 @@ function updateEntityIndex(entry, cwd = process.cwd(), config = {}) {
  * Runs at most once per day (checks index.lastPruned).
  * Mutates the index object in place.
  */
-function pruneEntityIndex(index, eeConfig = {}) {
+export function pruneEntityIndex(index, eeConfig = {}) {
   const maxAgeDays = eeConfig.maxAgeDays ?? 30;
   if (maxAgeDays <= 0) return; // Pruning disabled
 
@@ -1479,7 +1479,7 @@ export function getRelevantEntities(cwd = process.cwd(), recentFiles = []) {
  * @param {number} halfLifeHours - Hours until score drops to 50%
  * @returns {number} Score between 0 and 1
  */
-function calculateRecencyScore(timestamp, halfLifeHours = 24) {
+export function calculateRecencyScore(timestamp, halfLifeHours = 24) {
   const ageMs = Date.now() - new Date(timestamp).getTime();
   const ageHours = ageMs / (1000 * 60 * 60);
   // Exponential decay: score = 0.5^(age/halfLife)
@@ -1492,7 +1492,7 @@ function calculateRecencyScore(timestamp, halfLifeHours = 24) {
  * @param {string} cwd - Current working directory
  * @returns {number} Score between 0 and 1
  */
-function calculateFileRelevanceScore(entry, cwd) {
+export function calculateFileRelevanceScore(entry, cwd) {
   const filePaths = extractFilePaths(entry);
   if (filePaths.length === 0) return 0.5; // Neutral score for entries without file paths
 
@@ -1530,7 +1530,7 @@ function calculateFileRelevanceScore(entry, cwd) {
  * @param {object} outcomePriority - Priority map for task outcomes
  * @returns {number} Score between 0 and 1
  */
-function calculateTypePriorityScore(entry, typePriorities, outcomePriority = null) {
+export function calculateTypePriorityScore(entry, typePriorities, outcomePriority = null) {
   const type = entry.type || 'unknown';
   let baseScore = typePriorities[type] ?? 0.5;
 
@@ -1650,7 +1650,7 @@ export function deduplicateEntries(entries, config = {}) {
  * @param {object} config - Entity extraction config
  * @returns {number} Score between 0 and 1
  */
-function calculateEntityRelevanceScore(entry, entityIndex, config = {}) {
+export function calculateEntityRelevanceScore(entry, entityIndex, config = {}) {
   if (!entityIndex || Object.keys(entityIndex).length === 0) return 0.5;
 
   const entities = extractEntitiesFromEntry(entry, config);
