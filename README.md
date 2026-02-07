@@ -302,7 +302,8 @@ At session start, Mneme injects context in priority order:
 │  - Git commits since you left               │
 │                                             │
 │  ## Recently Active                         │
-│  - Hot files and functions                  │
+│  - Clustered entities with auto-labels,     │
+│    activity badges, velocity, and context   │
 ├─────────────────────────────────────────────┤
 │  LOW PRIORITY (minimal)                     │
 ├─────────────────────────────────────────────┤
