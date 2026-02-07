@@ -80,8 +80,9 @@ Output a JSON object with this exact structure:
 
 Rules:
 - Extract project context from any "Project Context" or introductory section
-- Key decisions are architectural choices, technology selections, design patterns
-- Current state describes what's implemented, in progress, or known issues
+- Key decisions are ONLY strategic/architectural choices that affect project direction (the "why", not the "how").
+  Do NOT include implementation details like config keys, defaults, thresholds, or parameter names — those go in currentState.
+- Current state describes what's implemented, in progress, known issues, and relevant implementation details
 - Recent work is the latest activity that hasn't been folded into current state yet
 - Use null for dates if not clearly specified
 - Output ONLY the JSON object, no other text`;
@@ -198,8 +199,11 @@ Analyze the new entries and output a JSON object with updates:
 
 Rules:
 - Only include fields that have updates (use empty arrays for no changes)
-- Key decisions: major architectural choices, technology decisions, design patterns
-- Current state: features implemented, work in progress, known issues
+- Key decisions: ONLY strategic/architectural choices that affect project direction.
+  Record the "why" not the "how". Good: "Prune old entities to prevent unbounded growth".
+  Bad: "Default 30-day retention (entityExtraction.maxAgeDays: 30), configurable by user".
+  Implementation details (config keys, defaults, thresholds, parameter names) belong in currentState, not keyDecisions.
+- Current state: features implemented, work in progress, known issues, implementation details
 - Recent work: specific tasks completed in this batch of entries
 - Merge similar entries, avoid duplicates
 - Be concise — each item should be one clear sentence
@@ -276,6 +280,7 @@ function applyUpdates(existing, updates) {
   if (updates.updateCurrentState?.length > 0) {
     const stateMap = new Map((result.currentState || []).map(s => [s.topic, s]));
     for (const update of updates.updateCurrentState) {
+      update.updatedAt = new Date().toISOString();
       stateMap.set(update.topic, update);
     }
     result.currentState = Array.from(stateMap.values());
@@ -300,7 +305,8 @@ function applyUpdates(existing, updates) {
         result.currentState = result.currentState || [];
         result.currentState.push({
           topic: 'Completed',
-          status: item.summary
+          status: item.summary,
+          updatedAt: new Date().toISOString()
         });
       }
     }
