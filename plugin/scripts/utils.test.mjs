@@ -99,27 +99,64 @@ describe('splitSentences', () => {
 // ============================================================================
 
 describe('extractiveSummarize', () => {
+  const defaultConfig = {
+    maxSummarySentences: 4,
+    actionWords: [
+      'fixed', 'added', 'created', 'updated', 'removed', 'deleted',
+      'implemented', 'refactored', 'resolved'
+    ],
+    reasoningWords: [
+      'because', 'instead', 'decided', "can't", 'avoid', 'prefer', 'constraint'
+    ]
+  };
+
   it('returns empty for empty input', () => {
-    assert.equal(extractiveSummarize('', {}), '');
+    assert.equal(extractiveSummarize('', defaultConfig), '');
   });
 
   it('keeps action sentences', () => {
     const text = 'Fixed the authentication bug in login flow. The weather is nice today.';
-    const result = extractiveSummarize(text, { maxSummarySentences: 1 });
+    const result = extractiveSummarize(text, { ...defaultConfig, maxSummarySentences: 1 });
     assert.ok(result.includes('Fixed'), `Expected "Fixed" in: ${result}`);
   });
 
   it('respects maxSummarySentences', () => {
     const text = 'Added auth. Fixed bug. Created test. Updated docs. Removed dead code.';
-    const result = extractiveSummarize(text, { maxSummarySentences: 2 });
+    const result = extractiveSummarize(text, { ...defaultConfig, maxSummarySentences: 2 });
     const sentences = result.split(/[.!?]\s+/).filter(s => s.trim());
     assert.ok(sentences.length <= 3, `Expected <=3 sentences, got ${sentences.length}`);
   });
 
   it('strips lead-in phrases', () => {
     const text = "Here's what I did. Fixed the authentication bug.";
-    const result = extractiveSummarize(text, { maxSummarySentences: 2 });
+    const result = extractiveSummarize(text, { ...defaultConfig, maxSummarySentences: 2 });
     assert.ok(!result.startsWith("Here's"), `Should strip lead-in: ${result}`);
+  });
+
+  it('always keeps the first sentence', () => {
+    // First sentence has no action/reasoning words but should still be kept
+    const text = 'The system has three components. Added auth. Fixed bug. Created test. Updated docs.';
+    const result = extractiveSummarize(text, { ...defaultConfig, maxSummarySentences: 2 });
+    assert.ok(result.includes('three components'), `First sentence should be kept: ${result}`);
+  });
+
+  it('scores reasoning words', () => {
+    const text = "We can't use Redis because serialization overhead is too high. The sky is blue. Added a log line.";
+    const result = extractiveSummarize(text, { ...defaultConfig, maxSummarySentences: 2 });
+    assert.ok(result.includes("can't use Redis"), `Should keep reasoning sentence: ${result}`);
+  });
+
+  it('scores entity references (file paths)', () => {
+    const text = 'Something happened. The change is in src/auth.ts for the login module. Nothing else matters.';
+    const result = extractiveSummarize(text, { ...defaultConfig, maxSummarySentences: 2 });
+    assert.ok(result.includes('src/auth.ts'), `Should keep entity sentence: ${result}`);
+  });
+
+  it('works with empty word lists', () => {
+    const text = 'First sentence. Second sentence. Third sentence.';
+    const result = extractiveSummarize(text, { maxSummarySentences: 2, actionWords: [], reasoningWords: [] });
+    // Should still return something (first sentence + one more)
+    assert.ok(result.includes('First sentence'), `Should keep first sentence: ${result}`);
   });
 });
 

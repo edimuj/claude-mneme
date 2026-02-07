@@ -2,7 +2,7 @@
 /**
  * Stop Hook - Response Capture
  * Captures Claude's final response when a turn completes
- * Uses extractive summarization to keep log entries concise
+ * Supports configurable summarization: none, extractive, or llm
  *
  * Handles markdown formatting:
  * - Splits on paragraph breaks (double newlines)
@@ -12,7 +12,7 @@
  * Runs before session-stop.mjs (summarization)
  */
 
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { ensureMemoryDirs, loadConfig, appendLogEntry, extractiveSummarize, logError } from './utils.mjs';
 
 // Read hook input from stdin
@@ -65,6 +65,81 @@ function readTranscript(transcriptPath) {
   } catch {
     return null;
   }
+}
+
+/**
+ * Extract text content from a message content field (string or content blocks)
+ */
+function extractTextContent(content) {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content
+      .filter(block => block.type === 'text')
+      .map(block => block.text)
+      .join('\n');
+  }
+  return '';
+}
+
+const CONFIRMATION_PATTERN = /^(y(es)?|no?|ok(ay)?|sure|go ahead|continue|do it|sounds good|lgtm|looks good|please|yep|yup|nope|correct|right|exactly|agreed|confirmed?)\.?$/i;
+
+function isConfirmation(text) {
+  return text.trim().length < 20 || CONFIRMATION_PATTERN.test(text.trim());
+}
+
+/**
+ * Extract open items / next steps from assistant text
+ */
+function extractOpenItems(text) {
+  if (!text) return [];
+  const items = [];
+  const patterns = [
+    /(?:next steps?|todo|remaining|still need to|should|need to|plan to)[:\s]+(.+)/gi,
+    /(?:^|\n)\s*[-*]\s*\[[ ]\]\s*(.+)/gm,  // unchecked markdown checkboxes
+  ];
+  for (const pattern of patterns) {
+    let match;
+    while ((match = pattern.exec(text)) !== null) {
+      const item = match[1].trim().substring(0, 150);
+      if (item.length >= 10 && items.length < 5) {
+        items.push(item);
+      }
+    }
+  }
+  return items;
+}
+
+/**
+ * Build handoff data from transcript for next session pickup
+ */
+function extractHandoff(transcript, responseSummary) {
+  // Find last meaningful user prompt (walk backward, skip confirmations)
+  let workingOn = null;
+  for (let i = transcript.length - 1; i >= 0; i--) {
+    if (transcript[i].role === 'user') {
+      const text = extractTextContent(transcript[i].content);
+      if (text && text.length >= 20 && !isConfirmation(text)) {
+        workingOn = text.substring(0, 300);
+        break;
+      }
+    }
+  }
+
+  // Get open items from last assistant response
+  let lastAssistantText = '';
+  for (let i = transcript.length - 1; i >= 0; i--) {
+    if (transcript[i].role === 'assistant') {
+      lastAssistantText = extractTextContent(transcript[i].content);
+      break;
+    }
+  }
+
+  return {
+    ts: new Date().toISOString(),
+    workingOn,
+    lastDone: responseSummary || null,
+    openItems: extractOpenItems(lastAssistantText),
+  };
 }
 
 function processStop(hookData) {
@@ -125,10 +200,13 @@ function processStop(hookData) {
   const config = loadConfig();
   let processed = textContent.trim();
 
-  // Apply extractive summarization if enabled
-  if (config.summarizeResponses) {
+  // Apply response summarization based on configured mode
+  const mode = config.responseSummarization || 'none';
+  if (mode === 'extractive') {
     processed = extractiveSummarize(processed, config);
   }
+  // 'llm' mode: reserved for future LLM-based summarization
+  // 'none': no summarization, just length cap below
 
   // Apply max length truncation as final safeguard
   if (processed.length > config.maxResponseLength) {
@@ -141,9 +219,20 @@ function processStop(hookData) {
     content: processed
   };
 
-  appendLogEntry(entry, cwd || process.cwd());
+  const workDir = cwd || process.cwd();
+  appendLogEntry(entry, workDir);
+
+  // Write handoff for next session pickup
+  try {
+    const paths = ensureMemoryDirs(workDir);
+    const handoff = extractHandoff(transcript, processed);
+    writeFileSync(paths.handoff, JSON.stringify(handoff, null, 2));
+  } catch (e) {
+    logError(e, 'stop-capture:handoff');
+  }
+
   process.exit(0);
 }
 
 // Timeout fallback
-setTimeout(() => process.exit(0), 5000);
+setTimeout(() => process.exit(0), 10000);

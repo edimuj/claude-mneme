@@ -159,15 +159,18 @@ Edit `~/.claude-mneme/config.json` to customize behavior:
 }
 ```
 
+> See [`plugin/CONFIG_REFERENCE.md`](plugin/CONFIG_REFERENCE.md) for all configuration options.
+
 <details>
 <summary><strong>Core Settings</strong></summary>
 
-| Option                         | Default | Description                                         |
-|--------------------------------|---------|-----------------------------------------------------|
-| `maxLogEntriesBeforeSummarize` | `50`    | Trigger summarization at this log size              |
-| `keepRecentEntries`            | `10`    | Recent entries to keep after summarization          |
-| `model`                        | `haiku` | Model for summarization (`haiku`, `sonnet`, `opus`) |
-| `maxResponseLength`            | `1000`  | Max characters for captured responses               |
+| Option                         | Default  | Description                                                  |
+|--------------------------------|----------|--------------------------------------------------------------|
+| `maxLogEntriesBeforeSummarize` | `50`     | Trigger summarization at this log size                       |
+| `keepRecentEntries`            | `10`     | Recent entries to keep after summarization                   |
+| `model`                        | `haiku`  | Model for summarization (`haiku`, `sonnet`, `opus`)          |
+| `responseSummarization`        | `"none"` | Response processing: `"none"`, `"extractive"`, or `"llm"`   |
+| `maxResponseLength`            | `1000`   | Max characters for captured responses                        |
 
 </details>
 
@@ -317,7 +320,7 @@ At session start, Mneme injects context in priority order:
 | `task`     | TaskCreate/Update | Work focus and progress (with outcome) |
 | `commit`   | Bash (git)        | Git commit messages                    |
 | `agent`    | SubagentStop      | Agent completion summaries             |
-| `response` | Stop              | Assistant's summarized response        |
+| `response` | Stop              | Assistant's response (configurable summarization) |
 
 ### Smart Processing
 

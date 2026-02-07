@@ -8,7 +8,7 @@
  */
 
 import { readFileSync, existsSync, openSync, readSync, closeSync, statSync } from 'fs';
-import { ensureMemoryDirs, loadConfig, appendLogEntry, extractiveSummarize, logError } from './utils.mjs';
+import { ensureMemoryDirs, loadConfig, appendLogEntry, extractiveSummarize, stripLeadIns, logError } from './utils.mjs';
 
 // Read hook input from stdin
 let input = '';
@@ -156,8 +156,12 @@ function processSubagentStop(hookData) {
   const config = loadConfig();
   const paths = ensureMemoryDirs(cwd || process.cwd());
 
-  // Use shared extractive summarization (with lead-in stripping)
-  const summary = extractiveSummarize(output, config);
+  // Summarize agent output based on configured mode
+  // Subagent output is typically verbose — extractive is a sensible minimum
+  const mode = config.responseSummarization || 'none';
+  const summary = (mode === 'none')
+    ? stripLeadIns(output)
+    : extractiveSummarize(output, config);
 
   if (!summary) {
     process.exit(0);
@@ -170,7 +174,12 @@ function processSubagentStop(hookData) {
     parts.push(`${task_description}:`);
   }
   parts.push(summary);
-  const content = parts.join(' ');
+  let content = parts.join(' ');
+
+  // Apply max length truncation as final safeguard
+  if (content.length > config.maxResponseLength) {
+    content = content.substring(0, config.maxResponseLength) + '...';
+  }
 
   // Skip if a recent response entry already covers the same content
   if (isDuplicateOfRecentResponse(content, paths.log)) {

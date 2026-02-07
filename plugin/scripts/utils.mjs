@@ -71,6 +71,7 @@ export function ensureMemoryDirs(cwd = process.cwd()) {
     entities: join(projectDir, 'entities.json'),
     cache: join(projectDir, '.cache.json'),
     lastSession: join(projectDir, '.last-session'),
+    handoff: join(projectDir, 'handoff.json'),
     config: CONFIG_FILE
   };
 }
@@ -296,14 +297,22 @@ export function loadConfig() {
     maxLogEntriesBeforeSummarize: 50,
     keepRecentEntries: 10,
     maxResponseLength: 1000,
-    summarizeResponses: true,
-    maxSummarySentences: 4,
+    responseSummarization: 'none',
+    maxSummarySentences: 6,
     actionWords: [
       'fixed', 'added', 'created', 'updated', 'removed', 'deleted',
       'implemented', 'refactored', 'changed', 'modified', 'resolved',
       'installed', 'configured', 'migrated', 'moved', 'renamed',
       'error', 'bug', 'issue', 'warning', 'failed', 'success',
       'complete', 'done', 'finished', 'ready'
+    ],
+    reasoningWords: [
+      'because', 'since', 'instead', 'rather', 'trade-off', 'tradeoff',
+      'decided', 'decision', 'chose', 'chosen', 'approach',
+      "can't", "cannot", "won't", "shouldn't", "don't",
+      'avoid', 'avoids', 'prevents', 'risk', 'concern',
+      'alternative', 'option', 'prefer', 'preferred',
+      'problem', 'constraint', 'limitation', 'blocker'
     ],
     model: 'claude-haiku-4-20250514',
     claudePath: 'claude',
@@ -455,6 +464,18 @@ export function loadConfig() {
     }
   }
 
+  // Backward compat: map legacy summarizeResponses boolean to responseSummarization
+  // Only apply if user explicitly set summarizeResponses in their config
+  if (existsSync(CONFIG_FILE)) {
+    try {
+      const userConfig = JSON.parse(readFileSync(CONFIG_FILE, 'utf-8'));
+      if (userConfig.summarizeResponses !== undefined && userConfig.responseSummarization === undefined) {
+        config.responseSummarization = userConfig.summarizeResponses ? 'extractive' : 'none';
+      }
+    } catch { /* already logged above */ }
+  }
+  delete config.summarizeResponses;
+
   // Resolve claudePath to absolute path if it's a bare command name.
   // The claude-agent-sdk requires an absolute path, not a PATH lookup.
   if (config.claudePath && !config.claudePath.startsWith('/')) {
@@ -481,7 +502,7 @@ export function loadConfig() {
  *      "Let me explain the changes." → removed
  * Only removes when there is substantive content afterwards.
  */
-function stripLeadIns(text) {
+export function stripLeadIns(text) {
   if (!text) return text;
   let result = text;
 
@@ -548,30 +569,55 @@ export function splitSentences(text) {
 }
 
 /**
- * Score a sentence based on action word matches.
- * Uses a single pre-compiled regex for all action words.
+ * Build a regex from a word list (cached).
  */
-const _actionWordRegexCache = new Map();
-function getActionWordRegex(actionWords) {
-  const key = actionWords.join('|');
-  if (!_actionWordRegexCache.has(key)) {
-    const alternation = actionWords.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
-    _actionWordRegexCache.set(key, new RegExp(`\\b(?:${alternation})\\b`, 'gi'));
+const _wordRegexCache = new Map();
+function getWordRegex(words) {
+  const key = words.join('|');
+  if (!_wordRegexCache.has(key)) {
+    const alternation = words.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+    _wordRegexCache.set(key, new RegExp(`\\b(?:${alternation})\\b`, 'gi'));
   }
-  return _actionWordRegexCache.get(key);
+  return _wordRegexCache.get(key);
 }
 
-function scoreSentence(sentence, actionWords) {
-  const regex = getActionWordRegex(actionWords);
-  regex.lastIndex = 0;
-  const matches = sentence.match(regex);
-  return matches ? matches.length : 0;
+// Matches file paths (e.g. src/utils.mjs, ./config.json) and function-like refs (e.g. handleLogin())
+const ENTITY_RE = /(?:[\w./\\-]+\.(?:js|ts|jsx|tsx|mjs|cjs|py|go|rs|java|json|yaml|yml|md|sh|toml))\b|\b\w+(?:\(\))/g;
+
+/**
+ * Score a sentence for extractive summarization.
+ * Considers action words, reasoning words, and entity references.
+ */
+function scoreSentence(sentence, config) {
+  let score = 0;
+
+  const actionWords = config.actionWords || [];
+  if (actionWords.length > 0) {
+    const regex = getWordRegex(actionWords);
+    regex.lastIndex = 0;
+    const matches = sentence.match(regex);
+    if (matches) score += matches.length;
+  }
+
+  const reasoningWords = config.reasoningWords || [];
+  if (reasoningWords.length > 0) {
+    const regex = getWordRegex(reasoningWords);
+    regex.lastIndex = 0;
+    const matches = sentence.match(regex);
+    if (matches) score += matches.length * 0.8;
+  }
+
+  // Sentences referencing files or functions get a boost
+  const entityMatches = sentence.match(ENTITY_RE);
+  if (entityMatches) score += entityMatches.length * 0.5;
+
+  return score;
 }
 
 /**
- * Extractive summarization using action words.
- * Strips lead-ins, splits into sentences, scores by action words,
- * returns top N sentences in original order.
+ * Extractive summarization using action words, reasoning words, and entity references.
+ * Strips lead-ins, splits into sentences, scores by signal words,
+ * always keeps the first sentence, returns top N in original order.
  */
 export function extractiveSummarize(text, config) {
   const cleaned = stripLeadIns(text);
@@ -580,28 +626,35 @@ export function extractiveSummarize(text, config) {
   if (sentences.length === 0) return text;
   if (sentences.length <= config.maxSummarySentences) return sentences.join(' ');
 
-  const actionWords = config.actionWords || [];
-
   // Score all sentences
   const scored = sentences.map((sentence, index) => ({
     sentence,
     index,
-    score: scoreSentence(sentence, actionWords)
+    score: scoreSentence(sentence, config)
   }));
 
-  // Sort by score descending, then by position
-  scored.sort((a, b) => {
+  // First sentence always included (usually the most informative)
+  const selected = new Set([0]);
+
+  // Sort remaining by score descending, then by position
+  const rest = scored.filter(s => s.index !== 0);
+  rest.sort((a, b) => {
     if (b.score !== a.score) return b.score - a.score;
     return a.index - b.index;
   });
 
-  // Take top N
-  const top = scored.slice(0, config.maxSummarySentences);
+  // Fill remaining slots
+  for (const s of rest) {
+    if (selected.size >= config.maxSummarySentences) break;
+    selected.add(s.index);
+  }
 
-  // Restore original order
-  top.sort((a, b) => a.index - b.index);
-
-  return top.map(s => s.sentence).join(' ');
+  // Return in original order
+  return scored
+    .filter(s => selected.has(s.index))
+    .sort((a, b) => a.index - b.index)
+    .map(s => s.sentence)
+    .join(' ');
 }
 
 /**
@@ -753,10 +806,24 @@ export function renderSummaryToMarkdown(summary, projectName, options = {}) {
   const csConfig = sections.currentState || { enabled: true, maxItems: 10 };
   if (csConfig.enabled !== false && summary.currentState?.length > 0) {
     const maxItems = csConfig.maxItems || 10;
-    const states = summary.currentState.slice(0, maxItems);
-    highLines.push('\n## Current State');
-    for (const s of states) {
-      highLines.push(`- **${s.topic}**: ${s.status}`);
+    const staleAfterDays = csConfig.staleAfterDays ?? 3;
+    const completedPattern = /\b(fixed|completed|implemented|done|resolved|removed|merged)\b/i;
+    const now = Date.now();
+
+    const states = summary.currentState
+      .filter(s => {
+        if (staleAfterDays === 0) return true; // Disabled
+        if (!completedPattern.test(s.status)) return true;
+        if (!s.updatedAt) return true; // Legacy data — keep
+        return (now - new Date(s.updatedAt).getTime()) < staleAfterDays * 86400000;
+      })
+      .slice(-maxItems);
+
+    if (states.length > 0) {
+      highLines.push('\n## Current State');
+      for (const s of states) {
+        highLines.push(`- **${s.topic}**: ${s.status}`);
+      }
     }
   }
 
