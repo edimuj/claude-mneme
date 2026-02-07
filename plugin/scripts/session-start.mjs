@@ -231,7 +231,7 @@ async function main() {
           let line = `\`${e.name}\``;
           const badges = [...new Set((e.contextTypes || []).map(t => badgeMap[t]).filter(Boolean))];
           if (badges.length > 0) line += ` [${badges.join(', ')}]`;
-          if (e.mentions > 1) line += ` (${e.mentions}x)`;
+          if (e.velocity) line += ` (${e.velocity})`;
           if (e.recentContext) line += ` — ${e.recentContext}`;
           return `- ${line}`;
         };

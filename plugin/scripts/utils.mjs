@@ -1312,13 +1312,27 @@ export function getRelevantEntities(cwd = process.cwd(), recentFiles = []) {
     }
 
     scored.sort((a, b) => b.score - a.score);
-    result[category] = scored.slice(0, 10).map(s => ({
-      name: s.name,
-      mentions: s.data.mentions,
-      lastSeen: s.data.lastSeen,
-      recentContext: s.data.contexts[s.data.contexts.length - 1]?.summary,
-      contextTypes: [...new Set(s.data.contexts.map(c => c.type).filter(Boolean))]
-    }));
+    const now = Date.now();
+    const DAY = 86400000;
+    result[category] = scored.slice(0, 10).map(s => {
+      const recent24h = s.data.contexts.filter(c => c.ts && (now - new Date(c.ts).getTime()) < DAY).length;
+      const recent7d = s.data.contexts.filter(c => c.ts && (now - new Date(c.ts).getTime()) < 7 * DAY).length;
+      let velocity;
+      if (recent24h > 0) velocity = `${recent24h}x today`;
+      else if (recent7d > 0) velocity = `${recent7d}x this week`;
+      else {
+        const daysAgo = s.data.lastSeen ? Math.floor((now - new Date(s.data.lastSeen).getTime()) / DAY) : null;
+        velocity = daysAgo !== null ? `${daysAgo}d ago` : null;
+      }
+      return {
+        name: s.name,
+        mentions: s.data.mentions,
+        lastSeen: s.data.lastSeen,
+        recentContext: s.data.contexts[s.data.contexts.length - 1]?.summary,
+        contextTypes: [...new Set(s.data.contexts.map(c => c.type).filter(Boolean))],
+        velocity
+      };
+    });
   }
 
   return result;
