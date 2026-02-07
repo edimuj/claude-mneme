@@ -222,7 +222,9 @@ async function main() {
     if (relevantEntities) {
       const maxFiles = aeConfig.maxFiles || 5;
       const maxFunctions = aeConfig.maxFunctions || 5;
-      const hasEntities = (relevantEntities.files?.length > 0) ||
+      const hasClusters = relevantEntities.clusters?.length > 0;
+      const hasEntities = hasClusters ||
+                          (relevantEntities.files?.length > 0) ||
                           (relevantEntities.functions?.length > 0);
       if (hasEntities) {
         console.log('\n## Recently Active\n');
@@ -235,6 +237,15 @@ async function main() {
           if (e.recentContext) line += ` — ${e.recentContext}`;
           return `- ${line}`;
         };
+        if (hasClusters) {
+          for (const cluster of relevantEntities.clusters) {
+            const label = cluster.label
+              ? cluster.label.charAt(0).toUpperCase() + cluster.label.slice(1)
+              : 'Related';
+            console.log(`**${label}:**`);
+            cluster.entities.forEach(e => console.log(formatEntity(e)));
+          }
+        }
         if (relevantEntities.files?.length > 0) {
           console.log('**Files:**');
           relevantEntities.files.slice(0, maxFiles).forEach(f => console.log(formatEntity(f)));

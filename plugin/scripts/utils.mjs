@@ -1283,6 +1283,124 @@ function truncateContext(text, maxLen) {
   return cleaned.slice(0, maxLen - 3) + '...';
 }
 
+const LABEL_STOPWORDS = new Set([
+  // Function words
+  'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+  'of', 'with', 'by', 'from', 'is', 'was', 'are', 'were', 'be', 'been',
+  'has', 'had', 'have', 'do', 'does', 'did', 'will', 'would', 'could',
+  'should', 'may', 'might', 'can', 'shall', 'this', 'that', 'these',
+  'those', 'it', 'its', 'not', 'no', 'all', 'each', 'also', 'just',
+  'than', 'too', 'very', 'now', 'then', 'here', 'there', 'when', 'where',
+  'how', 'what', 'which', 'who', 'so', 'if', 'up', 'out', 'about', 'into',
+  'only', 'more', 'most', 'some', 'such', 'after', 'before', 'both',
+  // Common verbs (noise in code summaries)
+  'add', 'added', 'fix', 'fixed', 'update', 'updated', 'use', 'used', 'using',
+  'show', 'make', 'set', 'get', 'run', 'check', 'create', 'new', 'wire',
+  'last', 'first', 'next', 'let', 'see', 'need', 'keep', 'try', 'free', 'data',
+  'file', 'files', 'line', 'lines', 'code', 'mjs', 'json', 'already', 'instead',
+  'three', 'four', 'five', 'two', 'one', 'per', 'each', 'default', 'none'
+]);
+
+function deriveClusterLabel(members, sharedTimestamps) {
+  const tsSet = new Set(sharedTimestamps);
+  const summaries = [];
+  for (const m of members) {
+    for (const ctx of m.data.contexts) {
+      if (tsSet.has(ctx.ts) && ctx.summary) summaries.push(ctx.summary);
+    }
+  }
+
+  // Build set of entity name stems to exclude from labels (avoids "utils" label for utils.mjs cluster)
+  const entityNames = new Set(
+    members.map(m => m.name.replace(/\.[^.]+$/, '').toLowerCase())
+  );
+
+  const wordCounts = {};
+  for (const summary of summaries) {
+    const words = summary
+      .replace(/\*\*/g, '')
+      .replace(/`/g, ' ')
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      .toLowerCase()
+      .replace(/[^a-z\s]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length > 2 && !LABEL_STOPWORDS.has(w) && !entityNames.has(w));
+    const seen = new Set();
+    for (const word of words) {
+      if (!seen.has(word)) { wordCounts[word] = (wordCounts[word] || 0) + 1; seen.add(word); }
+    }
+  }
+
+  const topWords = Object.entries(wordCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 2)
+    .map(([w]) => w);
+  return topWords.length > 0 ? topWords.join(' ') : null;
+}
+
+function findCoOccurrenceClusters(allEntities) {
+  if (allEntities.length < 2) return [];
+
+  // Map each timestamp to the entity indices that share it
+  const tsToIndices = new Map();
+  allEntities.forEach((e, idx) => {
+    for (const ctx of e.data.contexts) {
+      if (!ctx.ts) continue;
+      if (!tsToIndices.has(ctx.ts)) tsToIndices.set(ctx.ts, []);
+      tsToIndices.get(ctx.ts).push(idx);
+    }
+  });
+
+  // Count co-occurrences per pair
+  const pairCounts = new Map();
+  for (const [ts, indices] of tsToIndices) {
+    if (indices.length < 2) continue;
+    for (let a = 0; a < indices.length; a++) {
+      for (let b = a + 1; b < indices.length; b++) {
+        const key = `${indices[a]}:${indices[b]}`;
+        if (!pairCounts.has(key)) pairCounts.set(key, { count: 0, sharedTs: [] });
+        const pair = pairCounts.get(key);
+        pair.count++;
+        pair.sharedTs.push(ts);
+      }
+    }
+  }
+
+  // Greedy clustering: pairs with >= 2 shared timestamps
+  const significantPairs = [...pairCounts.entries()]
+    .filter(([, v]) => v.count >= 2)
+    .sort((a, b) => b[1].count - a[1].count);
+
+  const entityCluster = new Map();
+  const clusters = [];
+
+  for (const [pairKey, { sharedTs }] of significantPairs) {
+    const [iStr, jStr] = pairKey.split(':');
+    const i = parseInt(iStr), j = parseInt(jStr);
+    const ci = entityCluster.get(i), cj = entityCluster.get(j);
+
+    if (ci !== undefined && cj !== undefined) continue;
+    if (ci !== undefined && clusters[ci].members.length < 5) {
+      clusters[ci].members.push(allEntities[j]);
+      clusters[ci].sharedTs = [...new Set([...clusters[ci].sharedTs, ...sharedTs])];
+      entityCluster.set(j, ci);
+    } else if (cj !== undefined && clusters[cj].members.length < 5) {
+      clusters[cj].members.push(allEntities[i]);
+      clusters[cj].sharedTs = [...new Set([...clusters[cj].sharedTs, ...sharedTs])];
+      entityCluster.set(i, cj);
+    } else if (ci === undefined && cj === undefined) {
+      const idx = clusters.length;
+      clusters.push({ members: [allEntities[i], allEntities[j]], sharedTs });
+      entityCluster.set(i, idx);
+      entityCluster.set(j, idx);
+    }
+  }
+
+  return clusters
+    .filter(c => c.members.length >= 2)
+    .map(c => ({ label: deriveClusterLabel(c.members, c.sharedTs), members: c.members }));
+}
+
 /**
  * Get entity mentions relevant to current context
  * @param {string} cwd - Working directory
@@ -1291,48 +1409,65 @@ function truncateContext(text, maxLen) {
  */
 export function getRelevantEntities(cwd = process.cwd(), recentFiles = []) {
   const index = loadEntityIndex(cwd);
-  const result = { files: [], functions: [], errors: [], packages: [] };
+  const result = { files: [], functions: [], errors: [], packages: [], clusters: [] };
+  const now = Date.now();
+  const DAY = 86400000;
 
-  // Score entities by recency and mention count
-  const entityCategories = ['files', 'functions', 'errors', 'packages'];
-  for (const category of entityCategories) {
+  // Phase 1: Score and select top entities per category
+  const selectedByCategory = {};
+  for (const category of ['files', 'functions', 'errors', 'packages']) {
     const entities = index[category];
     if (!entities || typeof entities !== 'object') continue;
 
     const scored = [];
     for (const [name, data] of Object.entries(entities)) {
       const recency = data.lastSeen ? calculateRecencyScore(data.lastSeen, 24) : 0;
-      const frequency = Math.min(data.mentions / 10, 1); // Cap at 10 mentions
+      const frequency = Math.min(data.mentions / 10, 1);
       const score = 0.6 * recency + 0.4 * frequency;
-
-      // Boost if name matches recent files
       const nameBoost = recentFiles.some(f => f.includes(name)) ? 0.3 : 0;
-
-      scored.push({ name, data, score: score + nameBoost });
+      scored.push({ name, data, score: score + nameBoost, category });
     }
-
     scored.sort((a, b) => b.score - a.score);
-    const now = Date.now();
-    const DAY = 86400000;
-    result[category] = scored.slice(0, 10).map(s => {
-      const recent24h = s.data.contexts.filter(c => c.ts && (now - new Date(c.ts).getTime()) < DAY).length;
-      const recent7d = s.data.contexts.filter(c => c.ts && (now - new Date(c.ts).getTime()) < 7 * DAY).length;
-      let velocity;
-      if (recent24h > 0) velocity = `${recent24h}x today`;
-      else if (recent7d > 0) velocity = `${recent7d}x this week`;
-      else {
-        const daysAgo = s.data.lastSeen ? Math.floor((now - new Date(s.data.lastSeen).getTime()) / DAY) : null;
-        velocity = daysAgo !== null ? `${daysAgo}d ago` : null;
-      }
-      return {
-        name: s.name,
-        mentions: s.data.mentions,
-        lastSeen: s.data.lastSeen,
-        recentContext: s.data.contexts[s.data.contexts.length - 1]?.summary,
-        contextTypes: [...new Set(s.data.contexts.map(c => c.type).filter(Boolean))],
-        velocity
-      };
-    });
+    selectedByCategory[category] = scored.slice(0, 10);
+  }
+
+  // Phase 2: Cluster co-occurring entities
+  const allSelected = Object.values(selectedByCategory).flat();
+  const clusters = findCoOccurrenceClusters(allSelected);
+  const clusteredKeys = new Set(
+    clusters.flatMap(c => c.members.map(m => `${m.category}:${m.name}`))
+  );
+
+  // Format a scored entity into output shape
+  const formatEntity = (s) => {
+    const recent24h = s.data.contexts.filter(c => c.ts && (now - new Date(c.ts).getTime()) < DAY).length;
+    const recent7d = s.data.contexts.filter(c => c.ts && (now - new Date(c.ts).getTime()) < 7 * DAY).length;
+    let velocity;
+    if (recent24h > 0) velocity = `${recent24h}x today`;
+    else if (recent7d > 0) velocity = `${recent7d}x this week`;
+    else {
+      const daysAgo = s.data.lastSeen ? Math.floor((now - new Date(s.data.lastSeen).getTime()) / DAY) : null;
+      velocity = daysAgo !== null ? `${daysAgo}d ago` : null;
+    }
+    return {
+      name: s.name, category: s.category,
+      mentions: s.data.mentions, lastSeen: s.data.lastSeen,
+      recentContext: s.data.contexts[s.data.contexts.length - 1]?.summary,
+      contextTypes: [...new Set(s.data.contexts.map(c => c.type).filter(Boolean))],
+      velocity
+    };
+  };
+
+  // Phase 3: Build output
+  result.clusters = clusters.map(c => ({
+    label: c.label,
+    entities: c.members.map(formatEntity)
+  }));
+
+  for (const category of ['files', 'functions', 'errors', 'packages']) {
+    result[category] = (selectedByCategory[category] || [])
+      .filter(s => !clusteredKeys.has(`${category}:${s.name}`))
+      .map(formatEntity);
   }
 
   return result;
