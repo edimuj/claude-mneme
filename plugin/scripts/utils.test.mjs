@@ -40,6 +40,7 @@ import {
   extractErrorMessages,
   extractPackageNames,
   isValidPackageName,
+  stripMarkdown,
 } from './utils.mjs';
 
 // ============================================================================
@@ -1333,5 +1334,132 @@ describe('isValidPackageName', () => {
   it('respects custom minLength', () => {
     assert.equal(isValidPackageName('ab', 3), false);
     assert.equal(isValidPackageName('abc', 3), true);
+  });
+});
+
+// ============================================================================
+// stripMarkdown
+// ============================================================================
+
+describe('stripMarkdown', () => {
+  it('returns empty/null input unchanged', () => {
+    assert.equal(stripMarkdown(''), '');
+    assert.equal(stripMarkdown(null), null);
+    assert.equal(stripMarkdown(undefined), undefined);
+  });
+
+  it('passes plain text through unchanged', () => {
+    assert.equal(stripMarkdown('Hello world'), 'Hello world');
+  });
+
+  it('strips bold markers', () => {
+    assert.equal(stripMarkdown('This is **bold** text'), 'This is bold text');
+  });
+
+  it('strips italic markers', () => {
+    assert.equal(stripMarkdown('This is *italic* text'), 'This is italic text');
+  });
+
+  it('strips inline backticks', () => {
+    assert.equal(
+      stripMarkdown('Fixed `lib.rs`, `main.rs` formatting'),
+      'Fixed lib.rs, main.rs formatting'
+    );
+  });
+
+  it('strips code block fences', () => {
+    assert.equal(
+      stripMarkdown('```js\nconst x = 1;\n```'),
+      'const x = 1;'
+    );
+  });
+
+  it('strips headers', () => {
+    assert.equal(stripMarkdown('## Summary\nSome text'), 'Summary\nSome text');
+    assert.equal(stripMarkdown('### Details'), 'Details');
+  });
+
+  it('strips links, keeps text', () => {
+    assert.equal(
+      stripMarkdown('See [the docs](https://example.com) for details'),
+      'See the docs for details'
+    );
+  });
+
+  it('strips images', () => {
+    assert.equal(
+      stripMarkdown('Here: ![logo](https://img.png) done'),
+      'Here:  done'
+    );
+  });
+
+  it('strips block quotes', () => {
+    assert.equal(stripMarkdown('> Note: something important'), 'Note: something important');
+  });
+
+  it('strips bullet markers', () => {
+    assert.equal(stripMarkdown('- First item\n- Second item'), 'First item\nSecond item');
+    assert.equal(stripMarkdown('* First\n* Second'), 'First\nSecond');
+  });
+
+  it('strips numbered list markers', () => {
+    assert.equal(stripMarkdown('1. First\n2. Second'), 'First\nSecond');
+  });
+
+  it('strips checkboxes', () => {
+    assert.equal(stripMarkdown('- [x] Done task\n- [ ] Todo task'), 'Done task\nTodo task');
+  });
+
+  it('strips strikethrough', () => {
+    assert.equal(stripMarkdown('~~old text~~ new text'), 'old text new text');
+  });
+
+  it('strips horizontal rules', () => {
+    assert.equal(stripMarkdown('Above\n---\nBelow'), 'Above\n\nBelow');
+  });
+
+  it('strips emoji', () => {
+    assert.equal(stripMarkdown('Thanks! 👋'), 'Thanks!');
+    assert.equal(stripMarkdown('Great work 🎉🚀'), 'Great work');
+  });
+
+  it('strips HTML tags', () => {
+    assert.equal(stripMarkdown('text<br>more<details>hidden</details>'), 'textmorehidden');
+  });
+
+  it('collapses excessive blank lines', () => {
+    assert.equal(stripMarkdown('A\n\n\n\nB'), 'A\n\nB');
+  });
+
+  it('preserves hyphens in filenames and words', () => {
+    assert.equal(stripMarkdown('Updated my-file.rs and stop-capture.mjs'), 'Updated my-file.rs and stop-capture.mjs');
+  });
+
+  it('handles a realistic response', () => {
+    const input = 'Fixed. Three long lines in `lib.rs`, `main.rs`, and a couple in `cache.rs`/`typosquat.rs` that `cargo fmt` wanted wrapped. Should be green now.';
+    const expected = 'Fixed. Three long lines in lib.rs, main.rs, and a couple in cache.rs/typosquat.rs that cargo fmt wanted wrapped. Should be green now.';
+    assert.equal(stripMarkdown(input), expected);
+  });
+
+  it('handles a realistic agent response', () => {
+    const input = 'Thanks, it was a good one! Enjoy the evening. 👋';
+    const expected = 'Thanks, it was a good one! Enjoy the evening.';
+    assert.equal(stripMarkdown(input), expected);
+  });
+
+  it('handles combined formatting', () => {
+    const input = '## Summary\n\n- **Fixed** the `auth` bug\n- Updated [docs](https://x.com)\n\n---\n\n> Note: needs review 🔍';
+    const result = stripMarkdown(input);
+    assert.ok(!result.includes('##'));
+    assert.ok(!result.includes('**'));
+    assert.ok(!result.includes('`'));
+    assert.ok(!result.includes(']('));
+    assert.ok(!result.includes('---'));
+    assert.ok(!result.includes('>'));
+    assert.ok(!result.includes('🔍'));
+    assert.ok(result.includes('Fixed'));
+    assert.ok(result.includes('auth'));
+    assert.ok(result.includes('docs'));
+    assert.ok(result.includes('needs review'));
   });
 });

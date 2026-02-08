@@ -8,7 +8,7 @@
  */
 
 import { readFileSync, existsSync, openSync, readSync, closeSync, statSync } from 'fs';
-import { ensureMemoryDirs, loadConfig, appendLogEntry, extractiveSummarize, stripLeadIns, logError } from './utils.mjs';
+import { ensureMemoryDirs, loadConfig, appendLogEntry, extractiveSummarize, stripLeadIns, stripMarkdown, logError } from './utils.mjs';
 
 // Read hook input from stdin
 let input = '';
@@ -146,12 +146,13 @@ function processSubagentStop(hookData) {
     return;
   }
 
-  const output = extractTextContent(lastAssistantMessage.content);
-  if (!output || !output.trim()) {
+  const rawOutput = extractTextContent(lastAssistantMessage.content);
+  if (!rawOutput || !rawOutput.trim()) {
     process.exit(0);
     return;
   }
 
+  const output = stripMarkdown(rawOutput);
   const agentName = agent_type || 'agent';
   const config = loadConfig();
   const paths = ensureMemoryDirs(cwd || process.cwd());

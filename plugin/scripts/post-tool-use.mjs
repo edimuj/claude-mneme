@@ -52,26 +52,26 @@ function extractCommitMessage(command) {
   }
 
   // Match various git commit patterns
+  // HEREDOC style: git commit -m "$(cat <<'EOF'\nmessage\nEOF\n)"
   // git commit -m "message"
   // git commit -m 'message'
   // git commit -am "message"
   // git commit --message="message"
-  // HEREDOC style: git commit -m "$(cat <<'EOF'\nmessage\nEOF\n)"
 
-  // Simple -m flag patterns
-  let match = command.match(/git\s+commit\s+[^"']*-m\s*["']([^"']+)["']/);
+  // HEREDOC pattern first — must check before simple -m (which would match the shell wrapper)
+  let match = command.match(/<<['"]?EOF['"]?\s*\n\s*([^\n]+)/);
+  if (match) {
+    return match[1].trim();
+  }
+
+  // Simple -m flag patterns (also handles combined flags like -am)
+  match = command.match(/git\s+commit\s+[^"']*-[a-z]*m\s*["']([^"']+)["']/);
   if (match) {
     return match[1].trim();
   }
 
   // --message= pattern
   match = command.match(/git\s+commit\s+[^"']*--message=["']([^"']+)["']/);
-  if (match) {
-    return match[1].trim();
-  }
-
-  // HEREDOC pattern: git commit -m "$(cat <<'EOF'\nmessage\n...\nEOF\n)"
-  match = command.match(/<<['"]?EOF['"]?\s*\n\s*([^\n]+)/);
   if (match) {
     return match[1].trim();
   }

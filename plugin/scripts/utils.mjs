@@ -526,6 +526,71 @@ export function stripLeadIns(text) {
   return result;
 }
 
+/**
+ * Strip markdown formatting, emoji, and decorative elements from text.
+ * Keeps the semantic content, removes rendering artifacts.
+ * Used on response/agent output before logging — the log's consumers
+ * (summarization, entity extraction, context injection) don't render markdown.
+ */
+export function stripMarkdown(text) {
+  if (!text || typeof text !== 'string') return text;
+
+  let s = text;
+
+  // Code block fences (keep content, drop ```lang markers)
+  s = s.replace(/^```[^\n]*\n?/gm, '');
+
+  // HTML tags
+  s = s.replace(/<[^>]+>/g, '');
+
+  // Images ![alt](url) → remove
+  s = s.replace(/!\[([^\]]*)\]\([^)]+\)/g, '');
+
+  // Links [text](url) → text
+  s = s.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+
+  // Headers at line start
+  s = s.replace(/^#{1,6}\s+/gm, '');
+
+  // Bold **text** → text (before italic)
+  s = s.replace(/\*\*(.+?)\*\*/g, '$1');
+
+  // Italic *text* → text (after bold is gone, remaining paired * is italic)
+  s = s.replace(/\*([^*\n]+)\*/g, '$1');
+
+  // Strikethrough ~~text~~ → text
+  s = s.replace(/~~(.+?)~~/g, '$1');
+
+  // Inline backticks `code` → code
+  s = s.replace(/`([^`]+)`/g, '$1');
+
+  // Block quotes at line start
+  s = s.replace(/^>\s?/gm, '');
+
+  // Checkboxes (before bullet stripping)
+  s = s.replace(/^(\s*)[-*]\s*\[[ x]\]\s*/gm, '$1');
+
+  // Bullet/list markers at line start (- or * followed by space)
+  s = s.replace(/^(\s*)[-*]\s+/gm, '$1');
+
+  // Numbered list markers
+  s = s.replace(/^(\s*)\d+\.\s+/gm, '$1');
+
+  // Horizontal rules (line is only ---, ***, ___)
+  s = s.replace(/^[-*_]{3,}\s*$/gm, '');
+
+  // Emoji (presentation + pictographic + modifiers/ZWJ)
+  s = s.replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}\u{200D}\u{FE0F}]+/gu, '');
+
+  // Collapse 3+ blank lines to one blank line
+  s = s.replace(/\n{3,}/g, '\n\n');
+
+  // Trim trailing whitespace per line and overall
+  s = s.split('\n').map(l => l.trimEnd()).join('\n').trim();
+
+  return s;
+}
+
 const LEAD_IN_RE = /^(?:here(?:'s| is| are)|let me|i'll |i will |i'm going to|now,? let me|so,? here|ok(?:ay)?,? (?:so|let|here|now))/i;
 
 function isLeadIn(sentence) {

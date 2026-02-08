@@ -12,8 +12,8 @@
  * Runs before session-stop.mjs (summarization)
  */
 
-import { readFileSync, writeFileSync, existsSync } from 'fs';
-import { ensureMemoryDirs, loadConfig, appendLogEntry, extractiveSummarize, logError } from './utils.mjs';
+import { readFileSync, writeFileSync, existsSync, statSync, openSync, readSync, closeSync } from 'fs';
+import { ensureMemoryDirs, loadConfig, appendLogEntry, extractiveSummarize, stripMarkdown, logError } from './utils.mjs';
 
 // Read hook input from stdin
 let input = '';
@@ -142,6 +142,53 @@ function extractHandoff(transcript, responseSummary) {
   };
 }
 
+/**
+ * Read last N lines from a file efficiently (tail of file only)
+ */
+function readLastLines(filePath, count) {
+  try {
+    const stat = statSync(filePath);
+    if (stat.size === 0) return [];
+    const readSize = Math.min(stat.size, 4096);
+    const buf = Buffer.alloc(readSize);
+    const fd = openSync(filePath, 'r');
+    readSync(fd, buf, 0, readSize, stat.size - readSize);
+    closeSync(fd);
+    const lines = buf.toString('utf-8').trim().split('\n');
+    return lines.slice(-count);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Check if the last response entry already has identical content.
+ * Prevents duplicate logging when Stop fires but the transcript's last
+ * assistant message hasn't changed (e.g. current turn used a subagent).
+ */
+function isDuplicateResponse(content, logPath) {
+  const pendingPath = logPath.replace('.jsonl', '.pending.jsonl');
+  const filesToCheck = [pendingPath, logPath].filter(f => existsSync(f));
+  const prefix = content.substring(0, 100).toLowerCase();
+
+  for (const filePath of filesToCheck) {
+    const lastLines = readLastLines(filePath, 5);
+    for (const line of lastLines) {
+      if (!line) continue;
+      try {
+        const entry = JSON.parse(line);
+        if (entry.type === 'response') {
+          const existing = (entry.content || '').substring(0, 100).toLowerCase();
+          if (prefix === existing || prefix.startsWith(existing) || existing.startsWith(prefix)) {
+            return true;
+          }
+        }
+      } catch {}
+    }
+  }
+  return false;
+}
+
 function processStop(hookData) {
   const { transcript_path, cwd } = hookData;
 
@@ -198,7 +245,7 @@ function processStop(hookData) {
   }
 
   const config = loadConfig();
-  let processed = textContent.trim();
+  let processed = stripMarkdown(textContent);
 
   // Apply response summarization based on configured mode
   const mode = config.responseSummarization || 'none';
@@ -213,18 +260,27 @@ function processStop(hookData) {
     processed = processed.substring(0, config.maxResponseLength) + '...';
   }
 
+  const workDir = cwd || process.cwd();
+  const paths = ensureMemoryDirs(workDir);
+
+  // Skip if the last response entry already has identical content
+  // (happens when Stop fires but transcript's last assistant msg is stale,
+  // e.g. current turn used a subagent whose output came via tool result)
+  if (isDuplicateResponse(processed, paths.log)) {
+    process.exit(0);
+    return;
+  }
+
   const entry = {
     ts: new Date().toISOString(),
     type: 'response',
     content: processed
   };
 
-  const workDir = cwd || process.cwd();
   appendLogEntry(entry, workDir);
 
   // Write handoff for next session pickup
   try {
-    const paths = ensureMemoryDirs(workDir);
     const handoff = extractHandoff(transcript, processed);
     writeFileSync(paths.handoff, JSON.stringify(handoff, null, 2));
   } catch (e) {
