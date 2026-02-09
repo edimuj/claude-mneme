@@ -1,7 +1,7 @@
 {
   "name": "claude-mneme",
   "version": "2.9.1",
-  "description": "Persistent memory system for Claude Code - remembers context across sessions",
+  "description": "Automatic session memory for Claude Code — every session picks up where the last one left off",
   "author": {
     "name": "Edin Mujkanovic"
   },
@@ -11,7 +11,12 @@
     "memory",
     "context",
     "persistence",
-    "mneme",
-    "claude-code"
+    "session",
+    "history",
+    "remember",
+    "summarization",
+    "project-context",
+    "claude-code",
+    "mneme"
   ]
 }
