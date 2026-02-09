@@ -1,24 +1,24 @@
 <p align="center">
-  <img src="assets/claude-mneme-mascot-200.png" alt="Claude Mneme Mascot" width="150">
+  <img src="assets/claude-mneme-mascot-200.png" alt="Claude Mneme" width="150">
 </p>
 
 <h1 align="center">Claude Mneme</h1>
 
 <p align="center">
-  <em>Persistent memory for Claude Code — remember context across sessions</em>
+  <em>Persistent memory for Claude Code — so every session picks up where the last one left off</em>
 </p>
 
 <p align="center">
-  <a href="#installation">Installation</a> •
-  <a href="#usage">Usage</a> •
+  <a href="#install">Install</a> •
+  <a href="#what-you-get">What You Get</a> •
+  <a href="#commands">Commands</a> •
   <a href="#configuration">Configuration</a> •
   <a href="#how-it-works">How It Works</a> •
-  <a href="#sync-server">Sync Server</a> •
-  <a href="#related-projects">Related Projects</a>
+  <a href="#sync-server">Sync Server</a>
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.6.0-blue" alt="Version">
+  <img src="https://img.shields.io/badge/version-2.9.1-blue" alt="Version">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
   <img src="https://img.shields.io/badge/node-%3E%3D18-brightgreen" alt="Node">
   <img src="https://img.shields.io/badge/claude--code-plugin-orange" alt="Claude Code Plugin">
@@ -26,130 +26,118 @@
 
 ---
 
-> *Mneme (Greek: Μνήμη) — the muse of memory in Greek mythology*
+## The Problem
 
-**Claude Mneme** automatically captures your coding sessions — prompts, tasks, commits, and responses — and injects
-relevant context into new sessions so Claude can pick up where you left off.
+Every Claude Code session starts from zero. Claude doesn't know what you were working on yesterday, which architectural decisions you've already made, or that you tried and rejected approach X last week.
 
-## Features
+You end up repeating context, re-explaining decisions, and watching Claude suggest things you've already ruled out.
 
-|                               |                                                      |
-|-------------------------------|------------------------------------------------------|
-| 🧠 **Automatic Capture**      | Silently logs prompts, tasks, commits, and responses |
-| 📦 **Project-Aware**          | Separate memory per project, auto-detected from git  |
-| ✨ **Smart Summarization**     | Compresses old entries with Haiku when log grows     |
-| 🔍 **Entity Indexing**        | Tracks files, functions, errors for smarter context  |
-| 📊 **Hierarchical Injection** | Prioritizes key decisions over low-signal entries    |
-| 🔄 **Multi-Machine Sync**     | Optional server to sync memory across machines       |
-| ⚡ **Lightweight**             | Non-blocking async hooks, minimal overhead           |
+**Claude Mneme fixes this.** It silently captures your sessions and injects the right context when you start a new one — project state, key decisions, recent work, and anything you've explicitly told it to remember. ~2,000 tokens of signal, zero effort from you.
 
-## Installation
+## Install
 
 ```bash
-# Add the marketplace
 claude plugin marketplace add edimuj/claude-mneme
-
-# Install the plugin
 claude plugin install claude-mneme@claude-mneme
 ```
 
-## Usage
+Restart Claude Code. That's it — Mneme starts working automatically.
 
-### Automatic Memory
+## What You Get
 
-Once installed, Mneme works automatically. Start a new session and you'll see injected context:
+When you start a new session, Mneme injects a structured memory summary. Here's what that looks like in practice:
 
 ```
-SessionStart: claude-mneme project="my-app"
-# Claude Memory Summary
-...recent activity and decisions...
+<claude-mneme project="my-saas-app">
+
+## Last Session
+**Working on:** Fix the Stripe webhook race condition
+**Done:** Added idempotency key check before processing payment events
+**Open:** Write integration test for duplicate webhook scenario
+
+## Project Context
+SaaS billing app with Stripe integration, PostgreSQL, Express backend.
+Multi-tenant with per-org billing.
+
+## Key Decisions
+- Stripe webhooks over polling — real-time, less API usage
+- PostgreSQL advisory locks for payment processing — prevents double-charges
+- JWT auth with Redis session store — fast validation, easy revocation
+
+## Current State
+- Webhook handler: Implemented with idempotency checks
+- Billing dashboard: In progress — invoice list done, usage charts pending
+- Multi-currency support: Planned
+
+## Recent Work
+- [Feb 8] Fixed webhook signature verification for test environment
+- [Feb 7] Added org-level billing isolation
+
+## Recently Active
+- `webhook-handler.ts` [worked on] (3x this week)
+- `billing-service.ts` [worked on, discussed] (5x this week)
+- `handlePaymentIntent` [worked on] (2x this week)
+
+</claude-mneme>
 ```
 
-### Manual Memory with `/remember`
+Claude reads this context and immediately knows: what the project is, what decisions have been made (and why), what you were doing last session, and which files are hot right now. No "let me explore the codebase first" — it just picks up where you left off.
 
-Save important context that should persist permanently:
+## Why Mneme?
 
-```bash
-/remember I prefer TypeScript over JavaScript
-/remember The auth system uses JWT tokens stored in Redis
+| Approach | Limitation |
+|----------|------------|
+| **MEMORY.md** (built-in) | Manual. You write and maintain it yourself. No automatic capture |
+| **Heavy RAG/vector solutions** | Complex setup, high token cost, often retrieves noise over signal |
+| **Claude Mneme** | Automatic capture, structured summarization, ~2K tokens at startup. Configurable if you want more |
+
+Mneme sits in the middle: enough memory to be genuinely useful, lightweight enough that you forget it's there.
+
+## Commands
+
+### `/remember` — Save persistent context
+
+```
 /remember This project uses pnpm, not npm
+/remember The auth system uses JWT tokens stored in Redis
+/remember Tried Redis caching but serialization overhead made it slower
 ```
 
-> **Tip:** Remembered items are never auto-summarized — they persist until you remove them.
+Remembered items are never auto-summarized — they persist until you remove them.
 
-### Removing Memories with `/forget`
+### `/forget` — Remove remembered items
 
-Remove remembered items when they're no longer relevant:
-
-```bash
+```
 /forget my preference about tabs     # AI finds matching entries
 /forget                              # Lists all entries to choose from
 ```
 
-### Querying Memory with `/entity`
+### `/entity` — Query the knowledge index
 
-Look up what Mneme knows about a specific file, function, or entity:
-
-```bash
-/entity auth.ts                      # What do we know about auth.ts?
+```
+/entity auth.ts                      # What does Mneme know about this file?
 /entity handleLogin                  # Find references to a function
 ```
 
-### Manual Summarization with `/summarize`
+### `/summarize` — Force summarization
 
-Force immediate summarization of the activity log:
-
-```bash
-/summarize                           # Summarize now
+```
+/summarize                           # Compress the log now
 /summarize --dry-run                 # Preview what would be summarized
 ```
 
-> **Tip:** Summarization normally runs automatically at 50 entries. Use `/summarize` after busy sessions to compress the
-> log immediately.
+Summarization normally runs automatically when the log reaches 50 entries.
 
-### Health Check with `/status`
+### `/status` — Health check
 
-Diagnose issues with the plugin:
-
-```bash
-/status                              # Run health check
+```
+/status                              # Diagnose issues
 /status --clear-errors               # Clear the error log
 ```
 
-Checks config, claude binary, directories, recent errors, and sync status. If errors occurred in the last 24 hours, a warning appears at session start.
-
-### Inspecting Memory Manually
-
-You can run the plugin scripts directly to see what would be injected:
-
-```bash
-# See what gets injected at session start
-node ~/.claude/plugins/marketplaces/claude-mneme/plugin/scripts/session-start.mjs
-
-# List all indexed entities
-node ~/.claude/plugins/marketplaces/claude-mneme/plugin/scripts/mem-entity.mjs --list
-
-# Query a specific entity
-node ~/.claude/plugins/marketplaces/claude-mneme/plugin/scripts/mem-entity.mjs auth.ts
-
-# List remembered items
-node ~/.claude/plugins/marketplaces/claude-mneme/plugin/scripts/mem-forget.mjs --list
-
-# Preview what would be summarized
-node ~/.claude/plugins/marketplaces/claude-mneme/plugin/scripts/mem-summarize.mjs --dry-run
-
-# Force manual summarization
-node ~/.claude/plugins/marketplaces/claude-mneme/plugin/scripts/mem-summarize.mjs
-
-# Run health check
-node ~/.claude/plugins/marketplaces/claude-mneme/plugin/scripts/mem-status.mjs
-```
-
-> **Tip:** Run these from your project directory to see project-specific memory.
-
 ## Configuration
 
-Edit `~/.claude-mneme/config.json` to customize behavior:
+Edit `~/.claude-mneme/config.json`:
 
 ```json
 {
@@ -159,23 +147,23 @@ Edit `~/.claude-mneme/config.json` to customize behavior:
 }
 ```
 
-> See [`plugin/CONFIG_REFERENCE.md`](plugin/CONFIG_REFERENCE.md) for all configuration options.
+See [`CONFIG_REFERENCE.md`](plugin/CONFIG_REFERENCE.md) for all options.
 
 <details>
 <summary><strong>Core Settings</strong></summary>
 
-| Option                         | Default  | Description                                                  |
-|--------------------------------|----------|--------------------------------------------------------------|
-| `maxLogEntriesBeforeSummarize` | `50`     | Trigger summarization at this log size                       |
-| `keepRecentEntries`            | `10`     | Recent entries to keep after summarization                   |
-| `model`                        | `haiku`  | Model for summarization (`haiku`, `sonnet`, `opus`)          |
-| `responseSummarization`        | `"none"` | Response processing: `"none"`, `"extractive"`, or `"llm"`   |
-| `maxResponseLength`            | `1000`   | Max characters for captured responses                        |
+| Option | Default | Description |
+|--------|---------|-------------|
+| `maxLogEntriesBeforeSummarize` | `50` | Trigger summarization at this log size |
+| `keepRecentEntries` | `10` | Recent entries to keep after summarization |
+| `model` | `haiku` | Model for summarization (`haiku`, `sonnet`, `opus`) |
+| `responseSummarization` | `"none"` | Response capture: `"none"`, `"extractive"`, or `"llm"` |
+| `maxResponseLength` | `1000` | Max characters for captured responses |
 
 </details>
 
 <details>
-<summary><strong>Context Injection Settings</strong></summary>
+<summary><strong>Context Injection</strong></summary>
 
 Control what gets injected at session start:
 
@@ -183,45 +171,28 @@ Control what gets injected at session start:
 {
   "contextInjection": {
     "sections": {
-      "projectContext": {
-        "enabled": true
-      },
-      "keyDecisions": {
-        "enabled": true,
-        "maxItems": 10
-      },
-      "currentState": {
-        "enabled": true,
-        "maxItems": 10
-      },
-      "recentWork": {
-        "enabled": true,
-        "maxItems": 5,
-        "maxAgeDays": 7
-      },
-      "recentEntries": {
-        "enabled": true,
-        "maxItems": 4
-      }
+      "projectContext": { "enabled": true },
+      "keyDecisions": { "enabled": true, "maxItems": 10 },
+      "currentState": { "enabled": true, "maxItems": 10 },
+      "recentWork": { "enabled": true, "maxItems": 5, "maxAgeDays": 7 },
+      "recentEntries": { "enabled": true, "maxItems": 4 }
     }
   }
 }
 ```
 
-| Section          | Priority | Default Items          |
-|------------------|----------|------------------------|
-| `projectContext` | High     | Always shown           |
-| `keyDecisions`   | High     | Last 10                |
-| `currentState`   | High     | Last 10                |
-| `recentWork`     | Medium   | Last 5 (within 7 days) |
-| `recentEntries`  | Low      | Last 4                 |
+| Section | Priority | Default |
+|---------|----------|---------|
+| `projectContext` | High | Always shown |
+| `keyDecisions` | High | Last 10 |
+| `currentState` | High | Last 10 |
+| `recentWork` | Medium | Last 5 (within 7 days) |
+| `recentEntries` | Low | Last 4 |
 
 </details>
 
 <details>
-<summary><strong>Deduplication Settings</strong></summary>
-
-Group related entries and keep highest-signal:
+<summary><strong>Deduplication</strong></summary>
 
 ```json
 {
@@ -232,20 +203,18 @@ Group related entries and keep highest-signal:
 }
 ```
 
-When you work on something, multiple entries are created (prompt → task → commit). Deduplication groups entries within
-the time window and keeps only the most important one.
+When you work on something, multiple entries are created (prompt, task, commit). Deduplication groups entries within the time window and keeps only the highest-signal one.
 
 </details>
 
 <details>
-<summary><strong>Entity Extraction Settings</strong></summary>
-
-Track files, functions, and errors:
+<summary><strong>Entity Extraction</strong></summary>
 
 ```json
 {
   "entityExtraction": {
     "enabled": true,
+    "maxAgeDays": 30,
     "categories": {
       "files": true,
       "functions": true,
@@ -256,129 +225,88 @@ Track files, functions, and errors:
 }
 ```
 
+Entities older than `maxAgeDays` are automatically pruned. Set to `0` to disable pruning.
+
 </details>
 
 ## How It Works
 
-Mneme uses Claude Code's hook system to capture context at key moments:
+Mneme hooks into Claude Code's lifecycle events:
 
 ```
-SessionStart     → Injects memory context (hierarchical)
+SessionStart     → Injects memory context into the conversation
 UserPromptSubmit → Captures your prompts (filtered for noise)
 PostToolUse      → Captures task progress and git commits
 SubagentStop     → Captures agent completion summaries
-Stop             → Captures assistant's final response
-```
-
-### What Gets Injected
-
-At session start, Mneme injects context in priority order:
-
-```
-<claude-mneme project="my-app">
-┌─────────────────────────────────────────────┐
-│  HIGH PRIORITY (always shown)               │
-├─────────────────────────────────────────────┤
-│  ## Project Context                         │
-│  What this project is about                 │
-│                                             │
-│  ## Key Decisions                           │
-│  - Architecture choices                     │
-│  - Technology selections                    │
-│                                             │
-│  ## Current State                           │
-│  - What's implemented                       │
-│  - What's in progress                       │
-│                                             │
-│  ## Remembered                              │
-│  - Your /remember items                     │
-├─────────────────────────────────────────────┤
-│  MEDIUM PRIORITY (if recent/relevant)       │
-├─────────────────────────────────────────────┤
-│  ## Recent Work                             │
-│  - Last 7 days of activity                  │
-│                                             │
-│  ## Changes Since Last Session              │
-│  - Git commits since you left               │
-│                                             │
-│  ## Recently Active                         │
-│  - Clustered entities with auto-labels,     │
-│    activity badges, velocity, and context   │
-├─────────────────────────────────────────────┤
-│  LOW PRIORITY (minimal)                     │
-├─────────────────────────────────────────────┤
-│  ## Recent Activity                         │
-│  - Last 4 deduplicated entries              │
-└─────────────────────────────────────────────┘
-</claude-mneme>
+PreCompact       → Extracts context before conversation compaction
+Stop             → Captures response, writes session handoff
 ```
 
 ### What Gets Captured
 
-| Type       | Source            | Description                            |
-|------------|-------------------|----------------------------------------|
-| `prompt`   | UserPromptSubmit  | Your requests and questions            |
-| `task`     | TaskCreate/Update | Work focus and progress (with outcome) |
-| `commit`   | Bash (git)        | Git commit messages                    |
-| `agent`    | SubagentStop      | Agent completion summaries             |
-| `response` | Stop              | Assistant's response (configurable summarization) |
+| Type | Source | Description |
+|------|--------|-------------|
+| `prompt` | UserPromptSubmit | Your requests and questions |
+| `task` | TaskCreate/Update | Work focus and progress |
+| `commit` | Bash (git) | Git commit messages |
+| `agent` | SubagentStop | Agent completion summaries |
+| `response` | Stop | Assistant's response |
 
 ### Smart Processing
 
-Before injection, entries are processed:
+Before injection, entries go through:
 
-1. **Deduplication** — Groups related entries (prompt → task → commit) and keeps highest-signal
+1. **Deduplication** — Groups related entries (prompt → task → commit), keeps highest-signal
 2. **Relevance scoring** — Ranks by recency, file relevance, and entry type
 3. **Outcome tracking** — Completed tasks rank higher than abandoned ones
-4. **Entity extraction** — Indexes files, functions, errors for smarter context
+4. **Entity extraction** — Indexes files, functions, errors for `/entity` lookups
 
-### What Gets Filtered
+### Noise Filtering
 
-To reduce noise, Mneme automatically filters:
+Automatically filtered out:
+- Short prompts (<20 chars), confirmations ("yes", "ok", "continue")
+- Slash commands and duplicate task updates
 
-- Short prompts (<20 chars)
-- Confirmations ("yes", "ok", "continue")
-- Slash commands
-- Duplicate task updates
+### Summarization
 
-### Storage Structure
+When the log reaches 50 entries, Mneme uses Claude Haiku to compress older entries into a structured summary — preserving key decisions, project context, and current state while discarding low-signal noise. The 10 most recent entries are kept as-is.
+
+### Storage
 
 ```
 ~/.claude-mneme/
 ├── config.json                    # Global settings
 └── projects/
-    └── my-project/
-        ├── log.jsonl              # Recent memory entries
-        ├── summary.json           # AI-generated structured summary
+    └── <project>/
+        ├── log.jsonl              # Activity log (auto-summarized)
+        ├── summary.json           # Structured summary
         ├── remembered.json        # Persistent /remember entries
-        ├── entities.json          # Indexed entities (files, functions)
-        ├── .cache.json            # Parsed data cache
-        ├── .last-session          # Timestamp for git tracking
-        └── snapshots/             # Transcript snapshots (if enabled)
+        ├── entities.json          # Entity index
+        ├── handoff.json           # Session handoff
+        └── .last-session          # Timestamp for git tracking
 ```
 
 ## Sync Server
 
-Optionally sync memory across multiple machines using a self-hosted server.
-
-### Quick Start
+Optionally sync memory across machines with a self-hosted server.
 
 ```bash
-# 1. Start the server (on your home network or a VPS)
+# Start the server
 node server/mneme-server.mjs
 
-# 2. Enable sync in config (~/.claude-mneme/config.json)
+# Enable in config
 {
   "sync": {
     "enabled": true,
     "serverUrl": "http://192.168.1.100:3847"
   }
 }
-
-# 3. Restart Claude Code to pick up changes
 ```
 
-### How It Works
+Lock-based concurrency ensures one machine at a time per project. If the server is unreachable, Mneme continues with local memory.
+
+<details>
+<summary><strong>Sync Details</strong></summary>
 
 ```
 Machine A                          Server                          Machine B
@@ -398,13 +326,7 @@ Machine A                          Server                          Machine B
     │                                │   (acquire lock, pull changes) │
 ```
 
-- **Lock-based concurrency**: One machine at a time per project
-- **Graceful fallback**: If server is unreachable or locked, continues with local memory
-- **Heartbeat keepalive**: Lock auto-extends during active sessions
-- **Selective sync**: Only syncs memory files, not temporary/cache files
-
-<details>
-<summary><strong>Sync Configuration</strong></summary>
+**Configuration:**
 
 ```json
 {
@@ -419,99 +341,30 @@ Machine A                          Server                          Machine B
 }
 ```
 
-| Option      | Default | Description                                    |
-|-------------|---------|------------------------------------------------|
-| `enabled`   | `false` | Enable sync (local-only by default)            |
-| `serverUrl` | `null`  | Server URL (e.g., `http://192.168.1.100:3847`) |
-| `apiKey`    | `null`  | API key if server requires auth                |
-| `projectId` | `null`  | Override auto-detected project name            |
-| `timeoutMs` | `10000` | Request timeout in milliseconds                |
-
-</details>
-
-<details>
-<summary><strong>Server Configuration</strong></summary>
-
-Create `~/.mneme-server/config.json` on the server:
+**Server config** (`~/.mneme-server/config.json`):
 
 ```json
 {
   "port": 3847,
   "dataDir": "~/.mneme-server",
-  "apiKeys": [
-    "your-secret-key"
-  ],
+  "apiKeys": ["your-secret-key"],
   "lockTTLMinutes": 30
 }
 ```
 
-| Option           | Default           | Description                         |
-|------------------|-------------------|-------------------------------------|
-| `port`                | `3847`            | Port to listen on                       |
-| `dataDir`             | `~/.mneme-server` | Where to store project data             |
-| `apiKeys`             | `[]`              | API keys for auth (empty = no auth)     |
-| `lockTTLMinutes`      | `30`              | Lock expiration time                    |
-| `rateLimitPerMinute`  | `120`             | Max requests per IP per minute          |
+For non-localhost deployments, enable API keys and consider a reverse proxy for HTTPS. See [`server/README.md`](server/README.md) for full server docs.
 
 </details>
-
-<details>
-<summary><strong>Running as a Service</strong></summary>
-
-**systemd (Linux):**
-
-```ini
-# /etc/systemd/system/mneme-server.service
-[Unit]
-Description=Mneme Sync Server
-After=network.target
-
-[Service]
-Type=simple
-User=your-username
-ExecStart=/usr/bin/node /path/to/server/mneme-server.mjs
-Restart=on-failure
-
-[Install]
-WantedBy=multi-user.target
-```
-
-```bash
-sudo systemctl enable mneme-server
-sudo systemctl start mneme-server
-```
-
-**Docker:**
-
-```bash
-docker run -d -p 3847:3847 -v ~/.mneme-server:/root/.mneme-server \
-  node:20-alpine node /app/mneme-server.mjs
-```
-
-</details>
-
-> **Note:** For security, enable API keys for any non-localhost deployment and consider putting behind a reverse proxy (
-> nginx, caddy) for HTTPS.
-
-See [`server/README.md`](server/README.md) for full documentation.
 
 ## Related Projects
 
-Other tools for enhancing Claude Code:
-
 | Project | Description |
 |---------|-------------|
-| [claude-workshop](https://github.com/edimuj/claude-workshop) | A collection of useful plugins and tools for Claude Code |
-| [vexscan](https://github.com/edimuj/vexscan) | Security scanner for AI agent plugins, skills, MCPs, and configurations |
-| [claude-simple-status](https://github.com/edimuj/claude-simple-status) | Minimal statusline showing active model, context usage, and quota indicators |
-| [tokenlean](https://github.com/edimuj/tokenlean) | CLI toolkit with 32+ commands for examining codebases while minimizing token usage |
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
+| [tokenlean](https://github.com/edimuj/tokenlean) | CLI toolkit for examining codebases while minimizing token usage |
+| [claude-simple-status](https://github.com/edimuj/claude-simple-status) | Minimal statusline showing model, context, and quota |
+| [vexscan](https://github.com/edimuj/vexscan) | Security scanner for AI agent plugins and configurations |
+| [claude-workshop](https://github.com/edimuj/claude-workshop) | Collection of useful plugins and tools for Claude Code |
 
 ## License
 
-[MIT](LICENSE) © [Edin Mujkanovic](https://github.com/edimuj)
-
----
+[MIT](LICENSE) &copy; [Edin Mujkanovic](https://github.com/edimuj)
