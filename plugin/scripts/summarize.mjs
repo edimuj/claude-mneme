@@ -367,16 +367,11 @@ if (entryCount < config.maxLogEntriesBeforeSummarize) {
   process.exit(0);
 }
 
-// Use a lock file to prevent concurrent summarizations
+// Lock file for concurrency control.
+// When spawned by maybeSummarize(), the lock already exists (it created it).
+// When called directly (pre-compact, manual), we create it here.
+// Either way, refresh the timestamp and clean up in the finally block.
 const lockFile = paths.log + '.lock';
-if (existsSync(lockFile)) {
-  const lockStat = readFileSync(lockFile, 'utf-8');
-  const lockTime = parseInt(lockStat, 10);
-  if (Date.now() - lockTime < 5 * 60 * 1000) {
-    process.exit(0);
-  }
-}
-
 writeFileSync(lockFile, Date.now().toString());
 
 try {
