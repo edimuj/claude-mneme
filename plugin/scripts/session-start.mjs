@@ -83,17 +83,21 @@ async function main() {
   // MEDIUM PRIORITY - Inject if relevant/recent
   // ============================================================================
 
+  // Read last session timestamp (used for git changes and temporal header)
+  let lastSessionTs = null;
+  if (existsSync(paths.lastSession)) {
+    try {
+      lastSessionTs = readFileSync(paths.lastSession, 'utf-8').trim() || null;
+    } catch {}
+  }
+
   // Git changes since last session
   let gitChanges = '';
   const gcConfig = sections.gitChanges || { enabled: true };
   if (gcConfig.enabled !== false) {
     try {
-      let sinceArg = null;
-      if (existsSync(paths.lastSession)) {
-        sinceArg = readFileSync(paths.lastSession, 'utf-8').trim();
-      }
-      if (sinceArg) {
-        const log = execFileSync('git', ['log', '--oneline', `--since=${sinceArg}`], {
+      if (lastSessionTs) {
+        const log = execFileSync('git', ['log', '--oneline', `--since=${lastSessionTs}`], {
           encoding: 'utf8',
           cwd,
           stdio: ['ignore', 'pipe', 'ignore']
@@ -175,6 +179,27 @@ async function main() {
 
   if (hasContent) {
     console.log(`<claude-mneme project="${escapeAttr(projectName)}">`);
+
+    // Temporal header — session time + last session reference
+    const now = new Date();
+    const sessionTime = now.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
+    let temporalLine = `Session started: ${sessionTime}`;
+    if (lastSessionTs) {
+      const lastDate = new Date(lastSessionTs);
+      const lastFormatted = lastDate.toLocaleString(undefined, {
+        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false
+      });
+      const diffMin = Math.floor((now - lastDate) / 60000);
+      let relative;
+      if (diffMin < 2) relative = 'just now';
+      else if (diffMin < 60) relative = `${diffMin} minutes ago`;
+      else {
+        const diffHours = Math.floor(diffMin / 60);
+        relative = `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
+      }
+      temporalLine += ` | Last session: ${lastFormatted} (${relative})`;
+    }
+    console.log(`\n${temporalLine}`);
 
     // HANDOFF from previous session (highest immediate value)
     if (handoff) {
