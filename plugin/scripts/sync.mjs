@@ -11,7 +11,7 @@ import { hostname } from 'os';
 import { randomUUID } from 'crypto';
 import http from 'http';
 import https from 'https';
-import { ensureMemoryDirs, getProjectName, logError } from './utils.mjs';
+import { ensureMemoryDirs, getProjectRoot, logError } from './utils.mjs';
 
 // ============================================================================
 // Client ID Management
@@ -180,7 +180,11 @@ class SyncClient {
 
     this.cwd = cwd;
     this.paths = ensureMemoryDirs(cwd);
-    this.projectId = syncConfig.projectId || getProjectName(cwd);
+    // Default projectId uses sanitized full path to match local dir naming.
+    // Breaking change for sync users without explicit projectId — server-side
+    // data needs manual rename or re-sync.
+    const root = getProjectRoot(cwd);
+    this.projectId = syncConfig.projectId || root.replace(/^\//, '-').replace(/\//g, '-');
     this.clientId = getClientId(this.paths.base);
 
     this.http = this.enabled

@@ -29,6 +29,9 @@ import {
   loadConfig,
   flushPendingLog,
   ensureMemoryDirs,
+  getProjectRoot,
+  getProjectName,
+  MEMORY_BASE,
   calculateRecencyScore,
   calculateFileRelevanceScore,
   calculateTypePriorityScore,
@@ -1461,5 +1464,124 @@ describe('stripMarkdown', () => {
     assert.ok(result.includes('auth'));
     assert.ok(result.includes('docs'));
     assert.ok(result.includes('needs review'));
+  });
+});
+
+// ============================================================================
+// getProjectRoot
+// ============================================================================
+
+describe('getProjectRoot', () => {
+  it('returns an absolute path', () => {
+    const root = getProjectRoot();
+    assert.ok(root.startsWith('/'), `Expected absolute path, got ${root}`);
+  });
+
+  it('returns git root when inside a git repo', () => {
+    // We're running from inside the claude-mneme repo
+    const root = getProjectRoot();
+    assert.ok(root.endsWith('claude-mneme'), `Expected git root ending in claude-mneme, got ${root}`);
+  });
+
+  it('returns cwd for non-git directories', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'mneme-root-'));
+    try {
+      const root = getProjectRoot(tmp);
+      assert.equal(root, tmp, 'Should return cwd for non-git dir');
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+// ============================================================================
+// getProjectName (display name — basename only)
+// ============================================================================
+
+describe('getProjectName', () => {
+  it('returns basename of git root', () => {
+    const name = getProjectName();
+    assert.equal(name, 'claude-mneme');
+  });
+});
+
+// ============================================================================
+// getProjectMemoryDir (full-path-based naming + migration)
+// ============================================================================
+
+describe('ensureMemoryDirs (full-path naming + migration)', () => {
+  it('creates dir with full-path-based name', () => {
+    const paths = ensureMemoryDirs();
+    // Should contain the full path sanitized, not just basename
+    assert.ok(paths.project.includes('-home-') || paths.project.includes('-Users-'),
+      `Expected full-path dir name, got ${paths.project}`);
+    assert.ok(!paths.project.endsWith('/projects/claude-mneme'),
+      `Should NOT be old-style basename-only dir: ${paths.project}`);
+  });
+
+  it('migrates old-style dir to new-style dir', () => {
+    // Create a temp directory to simulate a project root
+    const tmp = mkdtempSync(join(tmpdir(), 'mneme-migrate-'));
+    const projectsDir = join(MEMORY_BASE, 'projects');
+
+    // Derive what old-style and new-style names would be for this temp dir
+    const oldName = tmp.split('/').pop().replace(/[^a-zA-Z0-9_-]/g, '_');
+    const newName = tmp.replace(/^\//, '-').replace(/\//g, '-');
+    const oldDir = join(projectsDir, oldName);
+    const newDir = join(projectsDir, newName);
+
+    try {
+      // Clean up any pre-existing dirs
+      if (existsSync(newDir)) rmSync(newDir, { recursive: true, force: true });
+      if (existsSync(oldDir)) rmSync(oldDir, { recursive: true, force: true });
+
+      // Create old-style dir with a marker file
+      mkdirSync(oldDir, { recursive: true });
+      writeFileSync(join(oldDir, 'marker.txt'), 'migrated');
+
+      // Call ensureMemoryDirs — should migrate old → new
+      const paths = ensureMemoryDirs(tmp);
+
+      assert.ok(existsSync(newDir), 'New-style dir should exist after migration');
+      assert.ok(!existsSync(oldDir), 'Old-style dir should be gone after migration');
+      assert.ok(existsSync(join(newDir, 'marker.txt')), 'Marker file should survive migration');
+      assert.equal(paths.project, newDir);
+    } finally {
+      // Clean up
+      if (existsSync(newDir)) rmSync(newDir, { recursive: true, force: true });
+      if (existsSync(oldDir)) rmSync(oldDir, { recursive: true, force: true });
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('does not migrate if new-style dir already exists', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'mneme-nomigrate-'));
+    const projectsDir = join(MEMORY_BASE, 'projects');
+
+    const oldName = tmp.split('/').pop().replace(/[^a-zA-Z0-9_-]/g, '_');
+    const newName = tmp.replace(/^\//, '-').replace(/\//g, '-');
+    const oldDir = join(projectsDir, oldName);
+    const newDir = join(projectsDir, newName);
+
+    try {
+      if (existsSync(newDir)) rmSync(newDir, { recursive: true, force: true });
+      if (existsSync(oldDir)) rmSync(oldDir, { recursive: true, force: true });
+
+      // Create BOTH dirs
+      mkdirSync(oldDir, { recursive: true });
+      writeFileSync(join(oldDir, 'old-marker.txt'), 'old');
+      mkdirSync(newDir, { recursive: true });
+      writeFileSync(join(newDir, 'new-marker.txt'), 'new');
+
+      ensureMemoryDirs(tmp);
+
+      // Old dir should still exist (no migration attempted)
+      assert.ok(existsSync(oldDir), 'Old dir should remain when new dir already exists');
+      assert.ok(existsSync(join(newDir, 'new-marker.txt')), 'New dir contents should be untouched');
+    } finally {
+      if (existsSync(newDir)) rmSync(newDir, { recursive: true, force: true });
+      if (existsSync(oldDir)) rmSync(oldDir, { recursive: true, force: true });
+      rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });

@@ -19,36 +19,44 @@ export function escapeAttr(str) {
 }
 
 /**
- * Get the project name from cwd
- * Uses git repo root name if available, otherwise directory name
+ * Get the project root directory (absolute path).
+ * Uses git repo root if available, otherwise cwd.
  */
-export function getProjectName(cwd = process.cwd()) {
+export function getProjectRoot(cwd = process.cwd()) {
   try {
-    // Try to get git repo root using execFileSync (safer than execSync)
-    const gitRoot = execFileSync('git', ['rev-parse', '--show-toplevel'], {
+    return execFileSync('git', ['rev-parse', '--show-toplevel'], {
       encoding: 'utf8',
       cwd,
       stdio: ['ignore', 'pipe', 'ignore']
     }).trim();
-    return basename(gitRoot);
   } catch {
-    // Not a git repo, use directory name
-    return basename(cwd);
+    return cwd;
   }
 }
 
 /**
- * Get the project-specific memory directory
+ * Get the project name from cwd (display name only — basename of root)
+ */
+export function getProjectName(cwd = process.cwd()) {
+  return basename(getProjectRoot(cwd));
+}
+
+/**
+ * Get the project-specific memory directory.
+ * Uses full absolute path as dirname to avoid collisions between
+ * projects with the same basename (e.g. ~/work/api vs ~/personal/api).
+ * Convention: /home/foo/bar → -home-foo-bar (matches Claude Code's own auto-memory).
  */
 function getProjectMemoryDir(cwd = process.cwd()) {
-  const projectName = getProjectName(cwd);
-  // Sanitize project name for filesystem
-  const safeName = projectName.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const projectRoot = getProjectRoot(cwd);
+  // Convert absolute path to safe dirname: /home/foo/bar → -home-foo-bar
+  const safeName = projectRoot.replace(/^\//, '-').replace(/\//g, '-');
   return join(MEMORY_BASE, 'projects', safeName);
 }
 
 /**
- * Ensure memory directories exist and return paths
+ * Ensure memory directories exist and return paths.
+ * Migrates old-style (basename-only) dirs to new-style (full-path) dirs.
  */
 export function ensureMemoryDirs(cwd = process.cwd()) {
   const projectDir = getProjectMemoryDir(cwd);
@@ -57,8 +65,15 @@ export function ensureMemoryDirs(cwd = process.cwd()) {
     mkdirSync(MEMORY_BASE, { recursive: true });
   }
 
+  // Migrate old-style (basename-only) dir to new-style (full-path) dir
   if (!existsSync(projectDir)) {
-    mkdirSync(projectDir, { recursive: true });
+    const oldName = getProjectName(cwd).replace(/[^a-zA-Z0-9_-]/g, '_');
+    const oldDir = join(MEMORY_BASE, 'projects', oldName);
+    if (existsSync(oldDir)) {
+      renameSync(oldDir, projectDir);
+    } else {
+      mkdirSync(projectDir, { recursive: true });
+    }
   }
 
   return {
