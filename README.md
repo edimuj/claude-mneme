@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.9.1-blue" alt="Version">
+  <img src="https://img.shields.io/badge/version-2.10.1-blue" alt="Version">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
   <img src="https://img.shields.io/badge/node-%3E%3D18-brightgreen" alt="Node">
   <img src="https://img.shields.io/badge/claude--code-plugin-orange" alt="Claude Code Plugin">
@@ -49,6 +49,8 @@ When you start a new session, Mneme injects a structured memory summary. Here's 
 
 ```
 <claude-mneme project="my-saas-app">
+
+Session started: 09:15 | Last session: Feb 10, 17:42 (15 hours ago)
 
 ## Last Session
 **Working on:** Fix the Stripe webhook race condition
@@ -82,6 +84,8 @@ Multi-tenant with per-org billing.
 ```
 
 Claude reads this context and immediately knows: what the project is, what decisions have been made (and why), what you were doing last session, and which files are hot right now. No "let me explore the codebase first" — it just picks up where you left off.
+
+**Temporal awareness** — Claude Code has no sense of time between sessions. Mneme injects the current time and when you last worked on the project, so Claude knows whether your "last session" was 20 minutes ago or 3 days ago. Small detail, big difference in how it reasons about staleness and continuity.
 
 ## Why Mneme?
 
