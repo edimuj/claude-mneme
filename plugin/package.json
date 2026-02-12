@@ -1,6 +1,7 @@
 {
   "name": "claude-mneme",
-  "version": "2.10.2",
+  "version": "2.10.3",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "install-deps": "npm install",
