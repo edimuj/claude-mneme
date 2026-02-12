@@ -1,6 +1,6 @@
 {
   "name": "claude-mneme",
-  "version": "2.10.1",
+  "version": "2.10.2",
   "description": "Automatic session memory for Claude Code — every session picks up where the last one left off",
   "author": {
     "name": "Edin Mujkanovic"
