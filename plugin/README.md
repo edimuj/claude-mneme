@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="../assets/claude-mneme-mascot-128.png" alt="Claude Mneme Mascot" width="128">
+  <img src="https://raw.githubusercontent.com/edimuj/claude-mneme/main/assets/claude-mneme-mascot-128.png" alt="Claude Mneme Mascot" width="128">
 </p>
 
 # Claude Mneme — Plugin
