@@ -1842,26 +1842,27 @@ export function scoreEntriesByRelevance(entries, cwd, config) {
 }
 
 /**
- * Append a log entry using the buffered write system.
- * Writes to .pending.jsonl for batching, then flushes if throttle allows.
+ * Append a log entry via the Mneme server (batched, deduplicated).
  * Also extracts and indexes entities from the entry.
  */
 export function appendLogEntry(entry, cwd = process.cwd()) {
-  const paths = ensureMemoryDirs(cwd);
-  const pendingPath = paths.log.replace('.jsonl', '.pending.jsonl');
   const config = loadConfig();
+  const project = getProjectRoot(cwd);
 
-  // Always write to pending file (fast, append-only)
-  appendFileSync(pendingPath, JSON.stringify(entry) + '\n');
+  // Send to server (batched, deduplicated)
+  import('../client/mneme-client.mjs')
+    .then(({ getClient }) => getClient())
+    .then(client => client.appendLog(project, entry))
+    .catch(err => {
+      // Server unavailable, fail silently (non-critical)
+      logError(err, 'appendLogEntry');
+    });
 
-  // Extract and index entities from the entry
+  // Extract and index entities from the entry (TODO: move to server in Phase 4)
   updateEntityIndex(entry, cwd, config);
 
-  // Invalidate cache since data has changed
+  // Invalidate cache since data has changed (TODO: move to server in Phase 3)
   invalidateCache(cwd);
-
-  // Throttled flush - only flush every 5 seconds
-  flushPendingLog(cwd, 5000);
 }
 
 /**
@@ -1938,67 +1939,20 @@ export function flushPendingLog(cwd = process.cwd(), throttleMs = 0) {
 }
 
 /**
- * Check if summarization is needed and spawn it in background if so
+ * Trigger summarization via server (throttled, queued)
  * Call this after appending to the log
  */
 export function maybeSummarize(cwd = process.cwd()) {
-  const paths = ensureMemoryDirs(cwd);
-  const config = loadConfig();
+  const project = getProjectRoot(cwd);
 
-  // Quick check: does log exist and have enough entries?
-  if (!existsSync(paths.log)) {
-    return;
-  }
-
-  try {
-    const logContent = readFileSync(paths.log, 'utf-8').trim();
-    if (!logContent) return;
-
-    const entryCount = logContent.split('\n').filter(l => l).length;
-
-    if (entryCount < config.maxLogEntriesBeforeSummarize) {
-      return;
-    }
-
-    // Acquire lock atomically using O_EXCL (fails if file already exists)
-    const lockFile = paths.log + '.lock';
-    try {
-      // If lock exists, check if it's stale
-      if (existsSync(lockFile)) {
-        const lockContent = readFileSync(lockFile, 'utf-8').trim();
-        const lockTime = parseInt(lockContent, 10);
-        if (lockTime && Date.now() - lockTime < 5 * 60 * 1000) {
-          return; // Lock is fresh, summarization already running
-        }
-        // Stale lock — remove it so we can try to acquire
-        try { unlinkSync(lockFile); } catch {}
-      }
-
-      // Atomic create: O_CREAT | O_EXCL | O_WRONLY fails if another process created it first
-      const fd = openSync(lockFile, fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_WRONLY);
-      const timestamp = Buffer.from(Date.now().toString());
-      writeSync(fd, timestamp);
-      closeSync(fd);
-    } catch {
-      // Another process won the race — let it handle summarization
-      return;
-    }
-
-    // Spawn summarize.mjs in background
-    const __filename = fileURLToPath(import.meta.url);
-    const __dirname = dirname(__filename);
-    const summarizeScript = join(__dirname, 'summarize.mjs');
-
-    const child = spawn('node', [summarizeScript, cwd], {
-      detached: true,
-      stdio: 'ignore',
-      cwd: cwd
+  // Trigger via server (server handles throttling, entry count check, etc.)
+  import('../client/mneme-client.mjs')
+    .then(({ getClient }) => getClient())
+    .then(client => client.triggerSummarize(project, false))
+    .catch(err => {
+      // Server unavailable or throttled, fail silently (non-critical)
+      logError(err, 'maybeSummarize');
     });
-
-    child.unref();
-  } catch (e) {
-    logError(e, 'maybeSummarize');
-  }
 }
 
 // ============================================================================

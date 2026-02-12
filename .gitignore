@@ -25,3 +25,4 @@ yarn-error.log*
 
 # Project-specific Claude instructions (may contain user-specific tools)
 plugin/CLAUDE.md
+.claude-rig
