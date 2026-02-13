@@ -230,21 +230,10 @@ async function processStop(hookData) {
   }
 
   // Extract text content from the assistant message
-  const content = lastAssistantMessage.content;
-  let textContent = '';
-
-  if (typeof content === 'string') {
-    textContent = content;
-  } else if (Array.isArray(content)) {
-    // Content blocks - extract text blocks only
-    textContent = content
-      .filter(block => block.type === 'text')
-      .map(block => block.text)
-      .join('\n');
-  }
+  const textContent = extractTextContent(lastAssistantMessage.content);
 
   if (!textContent || textContent.trim().length === 0) {
-    debugLog(`EXIT: empty textContent (content type: ${typeof content}, isArray: ${Array.isArray(content)})`);
+    debugLog(`EXIT: empty textContent (content type: ${typeof lastAssistantMessage.content}, isArray: ${Array.isArray(lastAssistantMessage.content)})`);
     process.exit(0);
     return;
   }
