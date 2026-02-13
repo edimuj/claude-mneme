@@ -19,6 +19,7 @@ import {
   emptyStructuredSummary,
   deduplicateEntries,
   withFileLock,
+  withoutNestedSessionGuard,
   logError
 } from './utils.mjs';
 
@@ -101,33 +102,36 @@ Rules:
       };
     }
 
-    let stderrOutput = '';
-    const queryResult = query({
-      prompt: messageGenerator(),
-      options: {
-        model: config.model,
-        disallowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Grep', 'Glob', 'WebFetch', 'WebSearch', 'Task', 'TodoWrite'],
-        pathToClaudeCodeExecutable: config.claudePath,
-        stderr: (data) => { stderrOutput += data; }
-      }
-    });
+    const response = await withoutNestedSessionGuard(async () => {
+      let stderrOutput = '';
+      const queryResult = query({
+        prompt: messageGenerator(),
+        options: {
+          model: config.model,
+          disallowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Grep', 'Glob', 'WebFetch', 'WebSearch', 'Task', 'TodoWrite'],
+          pathToClaudeCodeExecutable: config.claudePath,
+          stderr: (data) => { stderrOutput += data; }
+        }
+      });
 
-    let response = '';
-    try {
-      for await (const message of queryResult) {
-        if (message.type === 'assistant') {
-          const content = message.message.content;
-          response = Array.isArray(content)
-            ? content.filter(c => c.type === 'text').map(c => c.text).join('\n')
-            : typeof content === 'string' ? content : '';
+      let result = '';
+      try {
+        for await (const message of queryResult) {
+          if (message.type === 'assistant') {
+            const content = message.message.content;
+            result = Array.isArray(content)
+              ? content.filter(c => c.type === 'text').map(c => c.text).join('\n')
+              : typeof content === 'string' ? content : '';
+          }
+        }
+      } catch (iterError) {
+        if (!result) {
+          iterError.message += stderrOutput ? ` | stderr: ${stderrOutput.slice(0, 500)}` : ' | no stderr';
+          throw iterError;
         }
       }
-    } catch (iterError) {
-      if (!response) {
-        iterError.message += stderrOutput ? ` | stderr: ${stderrOutput.slice(0, 500)}` : ' | no stderr';
-        throw iterError;
-      }
-    }
+      return result;
+    });
 
     if (response) {
       const jsonMatch = response.match(/\{[\s\S]*\}/);
@@ -228,33 +232,36 @@ Rules:
       };
     }
 
-    let stderrOutput = '';
-    const queryResult = query({
-      prompt: messageGenerator(),
-      options: {
-        model: config.model,
-        disallowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Grep', 'Glob', 'WebFetch', 'WebSearch', 'Task', 'TodoWrite'],
-        pathToClaudeCodeExecutable: config.claudePath,
-        stderr: (data) => { stderrOutput += data; }
-      }
-    });
+    const response = await withoutNestedSessionGuard(async () => {
+      let stderrOutput = '';
+      const queryResult = query({
+        prompt: messageGenerator(),
+        options: {
+          model: config.model,
+          disallowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Grep', 'Glob', 'WebFetch', 'WebSearch', 'Task', 'TodoWrite'],
+          pathToClaudeCodeExecutable: config.claudePath,
+          stderr: (data) => { stderrOutput += data; }
+        }
+      });
 
-    let response = '';
-    try {
-      for await (const message of queryResult) {
-        if (message.type === 'assistant') {
-          const content = message.message.content;
-          response = Array.isArray(content)
-            ? content.filter(c => c.type === 'text').map(c => c.text).join('\n')
-            : typeof content === 'string' ? content : '';
+      let result = '';
+      try {
+        for await (const message of queryResult) {
+          if (message.type === 'assistant') {
+            const content = message.message.content;
+            result = Array.isArray(content)
+              ? content.filter(c => c.type === 'text').map(c => c.text).join('\n')
+              : typeof content === 'string' ? content : '';
+          }
+        }
+      } catch (iterError) {
+        if (!result) {
+          iterError.message += stderrOutput ? ` | stderr: ${stderrOutput.slice(0, 500)}` : ' | no stderr';
+          throw iterError;
         }
       }
-    } catch (iterError) {
-      if (!response) {
-        iterError.message += stderrOutput ? ` | stderr: ${stderrOutput.slice(0, 500)}` : ' | no stderr';
-        throw iterError;
-      }
-    }
+      return result;
+    });
 
     if (response) {
       const jsonMatch = response.match(/\{[\s\S]*\}/);

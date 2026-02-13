@@ -1987,6 +1987,25 @@ export function ensureDeps() {
 }
 
 // ============================================================================
+// SDK Helpers
+// ============================================================================
+
+/**
+ * Run an async function with the CLAUDECODE env var temporarily removed.
+ * The claude-agent-sdk copies process.env at spawn time, so clearing it
+ * before query() prevents the "cannot be launched inside another session" error.
+ */
+export async function withoutNestedSessionGuard(fn) {
+  const saved = process.env.CLAUDECODE;
+  delete process.env.CLAUDECODE;
+  try {
+    return await fn();
+  } finally {
+    if (saved !== undefined) process.env.CLAUDECODE = saved;
+  }
+}
+
+// ============================================================================
 // Error Logging
 // ============================================================================
 
