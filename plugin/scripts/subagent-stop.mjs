@@ -7,18 +7,30 @@
  * Note: Claude Code passes transcript_path (file path), not direct output
  */
 
-import { readFileSync, existsSync, openSync, readSync, closeSync, statSync } from 'fs';
+import { readFileSync, existsSync, appendFileSync, openSync, readSync, closeSync, statSync } from 'fs';
 import { ensureMemoryDirs, loadConfig, appendLogEntry, extractiveSummarize, stripLeadIns, stripMarkdown, logError } from './utils.mjs';
+import { homedir } from 'os';
+import { join } from 'path';
+
+const DEBUG_LOG = join(homedir(), '.claude-mneme', 'debug-subagent-stop.log');
+function debugLog(msg) {
+  appendFileSync(DEBUG_LOG, `[${new Date().toISOString()}] ${msg}\n`);
+}
 
 // Read hook input from stdin
 let input = '';
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', chunk => input += chunk);
 process.stdin.on('end', async () => {
+  debugLog(`INVOKED. stdin length: ${input.length}`);
   try {
     const hookData = JSON.parse(input);
+    debugLog(`hookData keys: ${Object.keys(hookData).join(', ')}`);
+    debugLog(`transcript_path: ${hookData.transcript_path || 'MISSING'}`);
+    debugLog(`cwd: ${hookData.cwd || 'MISSING'}`);
     await processSubagentStop(hookData);
   } catch (e) {
+    debugLog(`ERROR: ${e.message}`);
     logError(e, 'subagent-stop');
     process.exit(0);
   }
@@ -128,9 +140,11 @@ async function processSubagentStop(hookData) {
 
   const transcript = readTranscript(transcript_path);
   if (!transcript || transcript.length === 0) {
+    debugLog(`EXIT: no transcript (path: ${transcript_path}, exists: ${transcript_path ? existsSync(transcript_path) : 'N/A'})`);
     process.exit(0);
     return;
   }
+  debugLog(`transcript entries: ${transcript.length}, agent_type: ${agent_type}`);
 
   // Find the last assistant message (the agent's final output)
   let lastAssistantMessage = null;
@@ -142,15 +156,18 @@ async function processSubagentStop(hookData) {
   }
 
   if (!lastAssistantMessage) {
+    debugLog('EXIT: no assistant message found');
     process.exit(0);
     return;
   }
 
   const rawOutput = extractTextContent(lastAssistantMessage.content);
   if (!rawOutput || !rawOutput.trim()) {
+    debugLog('EXIT: empty rawOutput');
     process.exit(0);
     return;
   }
+  debugLog(`rawOutput length: ${rawOutput.length}`);
 
   const output = stripMarkdown(rawOutput);
   const agentName = agent_type || 'agent';
@@ -184,10 +201,12 @@ async function processSubagentStop(hookData) {
 
   // Skip if a recent response entry already covers the same content
   if (isDuplicateOfRecentResponse(content, paths.log)) {
+    debugLog('EXIT: duplicate response');
     process.exit(0);
     return;
   }
 
+  debugLog(`WRITING agent entry, content length: ${content.length}`);
   const entry = {
     ts: new Date().toISOString(),
     type: 'agent',

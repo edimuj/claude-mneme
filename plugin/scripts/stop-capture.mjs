@@ -12,18 +12,30 @@
  * Runs before session-stop.mjs (summarization)
  */
 
-import { readFileSync, writeFileSync, existsSync, statSync, openSync, readSync, closeSync } from 'fs';
+import { readFileSync, writeFileSync, appendFileSync, existsSync, statSync, openSync, readSync, closeSync } from 'fs';
 import { ensureMemoryDirs, loadConfig, appendLogEntry, extractiveSummarize, stripMarkdown, logError } from './utils.mjs';
+import { homedir } from 'os';
+import { join } from 'path';
+
+const DEBUG_LOG = join(homedir(), '.claude-mneme', 'debug-stop-capture.log');
+function debugLog(msg) {
+  appendFileSync(DEBUG_LOG, `[${new Date().toISOString()}] ${msg}\n`);
+}
 
 // Read hook input from stdin
 let input = '';
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', chunk => input += chunk);
 process.stdin.on('end', async () => {
+  debugLog(`INVOKED. stdin length: ${input.length}`);
   try {
     const hookData = JSON.parse(input);
+    debugLog(`hookData keys: ${Object.keys(hookData).join(', ')}`);
+    debugLog(`transcript_path: ${hookData.transcript_path || 'MISSING'}`);
+    debugLog(`cwd: ${hookData.cwd || 'MISSING'}`);
     await processStop(hookData);
   } catch (e) {
+    debugLog(`ERROR: ${e.message}`);
     logError(e, 'stop-capture');
     process.exit(0);
   }
@@ -196,9 +208,11 @@ async function processStop(hookData) {
   const transcript = readTranscript(transcript_path);
 
   if (!transcript || transcript.length === 0) {
+    debugLog(`EXIT: no transcript (path: ${transcript_path}, exists: ${transcript_path ? existsSync(transcript_path) : 'N/A'})`);
     process.exit(0);
     return;
   }
+  debugLog(`transcript entries: ${transcript.length}`);
 
   // Find the last assistant message in the transcript
   let lastAssistantMessage = null;
@@ -210,6 +224,7 @@ async function processStop(hookData) {
   }
 
   if (!lastAssistantMessage) {
+    debugLog('EXIT: no assistant message found');
     process.exit(0);
     return;
   }
@@ -229,9 +244,11 @@ async function processStop(hookData) {
   }
 
   if (!textContent || textContent.trim().length === 0) {
+    debugLog(`EXIT: empty textContent (content type: ${typeof content}, isArray: ${Array.isArray(content)})`);
     process.exit(0);
     return;
   }
+  debugLog(`textContent length: ${textContent.length}, first 80: ${textContent.substring(0, 80)}`);
 
   // Skip /remember command responses (already persisted in remembered.json)
   const rememberPatterns = [
@@ -267,6 +284,7 @@ async function processStop(hookData) {
   // (happens when Stop fires but transcript's last assistant msg is stale,
   // e.g. current turn used a subagent whose output came via tool result)
   if (isDuplicateResponse(processed, paths.log)) {
+    debugLog('EXIT: duplicate response detected');
     process.exit(0);
     return;
   }
@@ -277,7 +295,9 @@ async function processStop(hookData) {
     content: processed
   };
 
+  debugLog(`WRITING entry: ${JSON.stringify(entry).substring(0, 200)}`);
   await appendLogEntry(entry, workDir);
+  debugLog('DONE: entry written');
 
   // Write handoff for next session pickup
   try {
