@@ -7,7 +7,6 @@
 
 import { existsSync, appendFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
-import { createHash } from 'crypto';
 import { homedir } from 'os';
 import { BatchQueue } from './batch-queue.mjs';
 import { Deduplicator } from './deduplicator.mjs';
@@ -119,10 +118,10 @@ export class LogService {
    * Get project memory directory path
    */
   getProjectMemoryDir(project) {
-    // Hash project path for directory name (same as current implementation)
-    const hash = createHash('sha256').update(project).digest('hex').slice(0, 16);
+    // Convert absolute path to safe dirname: /home/foo/bar → -home-foo-bar
+    const safeName = project.replace(/^\//, '-').replace(/\//g, '-');
     const memoryBase = homedir() + '/.claude-mneme';
-    return join(memoryBase, hash);
+    return join(memoryBase, 'projects', safeName);
   }
 
   /**

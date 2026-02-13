@@ -10,7 +10,6 @@ import { createServer } from 'http';
 import { existsSync, writeFileSync, unlinkSync, readFileSync, appendFileSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
-import { createHash } from 'crypto';
 import { LogService } from './log-service.mjs';
 import { SummarizationService } from './summarization-service.mjs';
 
@@ -94,8 +93,8 @@ class MnemeServer {
    * Get project memory directory path
    */
   getProjectMemoryDir(project) {
-    const hash = createHash('sha256').update(project).digest('hex').slice(0, 16);
-    return join(MEMORY_BASE, hash);
+    const safeName = project.replace(/^\//, '-').replace(/\//g, '-');
+    return join(MEMORY_BASE, 'projects', safeName);
   }
 
   async start() {

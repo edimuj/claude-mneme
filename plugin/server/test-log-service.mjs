@@ -7,11 +7,9 @@ import { getClient } from '../client/mneme-client.mjs';
 import { existsSync, readFileSync, rmSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
-import { createHash } from 'crypto';
-
 const testProject = '/tmp/test-mneme-project';
-const projectHash = createHash('sha256').update(testProject).digest('hex').slice(0, 16);
-const projectDir = join(homedir(), '.claude-mneme', projectHash);
+const safeName = testProject.replace(/^\//, '-').replace(/\//g, '-');
+const projectDir = join(homedir(), '.claude-mneme', 'projects', safeName);
 const logFile = join(projectDir, 'log.jsonl');
 
 let testsPassed = 0;
@@ -192,11 +190,11 @@ async function runTests() {
 
     await new Promise(r => setTimeout(r, 1500));
 
-    const hash1 = createHash('sha256').update(project1).digest('hex').slice(0, 16);
-    const hash2 = createHash('sha256').update(project2).digest('hex').slice(0, 16);
+    const safe1 = project1.replace(/^\//, '-').replace(/\//g, '-');
+    const safe2 = project2.replace(/^\//, '-').replace(/\//g, '-');
 
-    const log1 = join(homedir(), '.claude-mneme', hash1, 'log.jsonl');
-    const log2 = join(homedir(), '.claude-mneme', hash2, 'log.jsonl');
+    const log1 = join(homedir(), '.claude-mneme', 'projects', safe1, 'log.jsonl');
+    const log2 = join(homedir(), '.claude-mneme', 'projects', safe2, 'log.jsonl');
 
     assert(existsSync(log1), 'Project 1 log exists');
     assert(existsSync(log2), 'Project 2 log exists');
