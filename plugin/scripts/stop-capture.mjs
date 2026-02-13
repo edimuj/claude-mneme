@@ -137,12 +137,15 @@ function extractHandoff(transcript, responseSummary) {
     }
   }
 
-  // Get open items from last assistant response
+  // Get open items from last assistant response with text
   let lastAssistantText = '';
   for (let i = transcript.length - 1; i >= 0; i--) {
     if (transcript[i].role === 'assistant') {
-      lastAssistantText = extractTextContent(transcript[i].content);
-      break;
+      const text = extractTextContent(transcript[i].content);
+      if (text && text.trim().length > 0) {
+        lastAssistantText = text;
+        break;
+      }
     }
   }
 
@@ -214,26 +217,22 @@ async function processStop(hookData) {
   }
   debugLog(`transcript entries: ${transcript.length}`);
 
-  // Find the last assistant message in the transcript
-  let lastAssistantMessage = null;
+  // Find the last assistant message with actual text content
+  // The very last assistant message may only contain tool_use blocks,
+  // so walk backward until we find one with text
+  let textContent = '';
   for (let i = transcript.length - 1; i >= 0; i--) {
     if (transcript[i].role === 'assistant') {
-      lastAssistantMessage = transcript[i];
-      break;
+      const text = extractTextContent(transcript[i].content);
+      if (text && text.trim().length > 0) {
+        textContent = text;
+        break;
+      }
     }
   }
 
-  if (!lastAssistantMessage) {
-    debugLog('EXIT: no assistant message found');
-    process.exit(0);
-    return;
-  }
-
-  // Extract text content from the assistant message
-  const textContent = extractTextContent(lastAssistantMessage.content);
-
-  if (!textContent || textContent.trim().length === 0) {
-    debugLog(`EXIT: empty textContent (content type: ${typeof lastAssistantMessage.content}, isArray: ${Array.isArray(lastAssistantMessage.content)})`);
+  if (!textContent) {
+    debugLog('EXIT: no assistant message with text content found');
     process.exit(0);
     return;
   }

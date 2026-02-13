@@ -146,24 +146,21 @@ async function processSubagentStop(hookData) {
   }
   debugLog(`transcript entries: ${transcript.length}, agent_type: ${agent_type}`);
 
-  // Find the last assistant message (the agent's final output)
-  let lastAssistantMessage = null;
+  // Find the last assistant message with actual text content
+  // (last message may only contain tool_use blocks)
+  let rawOutput = '';
   for (let i = transcript.length - 1; i >= 0; i--) {
     if (transcript[i].role === 'assistant') {
-      lastAssistantMessage = transcript[i];
-      break;
+      const text = extractTextContent(transcript[i].content);
+      if (text && text.trim().length > 0) {
+        rawOutput = text;
+        break;
+      }
     }
   }
 
-  if (!lastAssistantMessage) {
-    debugLog('EXIT: no assistant message found');
-    process.exit(0);
-    return;
-  }
-
-  const rawOutput = extractTextContent(lastAssistantMessage.content);
-  if (!rawOutput || !rawOutput.trim()) {
-    debugLog('EXIT: empty rawOutput');
+  if (!rawOutput) {
+    debugLog('EXIT: no assistant message with text content found');
     process.exit(0);
     return;
   }
