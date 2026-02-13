@@ -23,11 +23,38 @@ import {
   logError
 } from './utils.mjs';
 
+import { homedir } from 'os';
+import { join, basename } from 'path';
+
+const MEMORY_BASE = join(homedir(), '.claude-mneme');
+
 const cwd = process.argv[2] || process.cwd();
 const migrateOnly = process.argv.includes('--migrate');
-const paths = ensureMemoryDirs(cwd);
+
+// When called by the server, cwd is already the project memory dir
+// (e.g. ~/.claude-mneme/projects/-home-edimuj-projects-foo).
+// Do NOT re-derive through ensureMemoryDirs — that triggers migration
+// logic which renames the correct directory to a double-nested path.
+const isMemoryDir = cwd.startsWith(join(MEMORY_BASE, 'projects'));
+const paths = isMemoryDir ? buildPaths(cwd) : ensureMemoryDirs(cwd);
 const config = loadConfig();
-const projectName = getProjectName(cwd);
+const projectName = isMemoryDir ? basename(cwd) : getProjectName(cwd);
+
+function buildPaths(projectDir) {
+  return {
+    base: MEMORY_BASE,
+    project: projectDir,
+    log: join(projectDir, 'log.jsonl'),
+    summary: join(projectDir, 'summary.md'),
+    summaryJson: join(projectDir, 'summary.json'),
+    remembered: join(projectDir, 'remembered.json'),
+    entities: join(projectDir, 'entities.json'),
+    cache: join(projectDir, '.cache.json'),
+    lastSession: join(projectDir, '.last-session'),
+    handoff: join(projectDir, 'handoff.json'),
+    config: join(MEMORY_BASE, 'config.json')
+  };
+}
 
 /**
  * Read existing structured summary, or return empty structure
