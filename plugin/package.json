@@ -1,6 +1,6 @@
 {
   "name": "claude-mneme",
-  "version": "3.0.4",
+  "version": "3.1.0",
   "license": "MIT",
   "type": "module",
   "repository": {
@@ -25,7 +25,8 @@
     "test": "node --test scripts/utils.test.mjs",
     "test:server": "node server/test-server.mjs",
     "test:log": "node server/test-log-service.mjs",
-    "test:summarization": "node server/test-summarization.mjs"
+    "test:summarization": "node server/test-summarization.mjs",
+    "dashboard": "node dashboard/server.mjs"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.31"

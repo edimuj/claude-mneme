@@ -1845,18 +1845,18 @@ export function scoreEntriesByRelevance(entries, cwd, config) {
  * Append a log entry via the Mneme server (batched, deduplicated).
  * Also extracts and indexes entities from the entry.
  */
-export function appendLogEntry(entry, cwd = process.cwd()) {
+export async function appendLogEntry(entry, cwd = process.cwd()) {
   const config = loadConfig();
   const project = getProjectRoot(cwd);
 
   // Send to server (batched, deduplicated)
-  import('../client/mneme-client.mjs')
-    .then(({ getClient }) => getClient())
-    .then(client => client.appendLog(project, entry))
-    .catch(err => {
-      // Server unavailable, fail silently (non-critical)
-      logError(err, 'appendLogEntry');
-    });
+  try {
+    const { getClient } = await import('../client/mneme-client.mjs');
+    const client = await getClient();
+    await client.appendLog(project, entry);
+  } catch (err) {
+    logError(err, 'appendLogEntry');
+  }
 
   // Extract and index entities from the entry (TODO: move to server in Phase 4)
   updateEntityIndex(entry, cwd, config);

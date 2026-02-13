@@ -19,10 +19,10 @@ import { ensureMemoryDirs, loadConfig, appendLogEntry, extractiveSummarize, stri
 let input = '';
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', chunk => input += chunk);
-process.stdin.on('end', () => {
+process.stdin.on('end', async () => {
   try {
     const hookData = JSON.parse(input);
-    processStop(hookData);
+    await processStop(hookData);
   } catch (e) {
     logError(e, 'stop-capture');
     process.exit(0);
@@ -189,7 +189,7 @@ function isDuplicateResponse(content, logPath) {
   return false;
 }
 
-function processStop(hookData) {
+async function processStop(hookData) {
   const { transcript_path, cwd } = hookData;
 
   // Read transcript from file path (Claude Code passes path, not data)
@@ -277,7 +277,7 @@ function processStop(hookData) {
     content: processed
   };
 
-  appendLogEntry(entry, workDir);
+  await appendLogEntry(entry, workDir);
 
   // Write handoff for next session pickup
   try {

@@ -33,10 +33,10 @@ function writeLastTodoHash(projectDir, hash) {
 let input = '';
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', chunk => input += chunk);
-process.stdin.on('end', () => {
+process.stdin.on('end', async () => {
   try {
     const hookData = JSON.parse(input);
-    processToolUse(hookData);
+    await processToolUse(hookData);
   } catch (e) {
     logError(e, 'post-tool-use');
     process.exit(0);
@@ -88,7 +88,7 @@ function extractCommitMessage(command) {
 /**
  * Process TodoWrite tool usage
  */
-function processTodoWrite(hookData) {
+async function processTodoWrite(hookData) {
   const { tool_input, cwd } = hookData;
 
   const todos = tool_input?.todos;
@@ -130,7 +130,7 @@ function processTodoWrite(hookData) {
     content: parts.join(' ')
   };
 
-  appendLogEntry(entry, cwd || process.cwd());
+  await appendLogEntry(entry, cwd || process.cwd());
   return true;
 }
 
@@ -171,7 +171,7 @@ function writeTaskTracking(projectDir, tracking) {
  * Process TaskCreate tool usage
  * Stores the task with metadata for outcome tracking
  */
-function processTaskCreate(hookData) {
+async function processTaskCreate(hookData) {
   const { tool_input, cwd } = hookData;
 
   const { subject, description } = tool_input || {};
@@ -204,7 +204,7 @@ function processTaskCreate(hookData) {
  * Process TaskUpdate tool usage
  * Tracks task lifecycle and logs meaningful state changes with outcomes
  */
-function processTaskUpdate(hookData) {
+async function processTaskUpdate(hookData) {
   const { tool_input, cwd } = hookData;
 
   const { taskId, status, subject } = tool_input || {};
@@ -285,7 +285,7 @@ function processTaskUpdate(hookData) {
 
   // Append log entry outside the task lock to avoid nested lock contention
   if (logEntry) {
-    appendLogEntry(logEntry, effectiveCwd);
+    await appendLogEntry(logEntry, effectiveCwd);
   }
 
   return result === true;
@@ -294,7 +294,7 @@ function processTaskUpdate(hookData) {
 /**
  * Process Bash tool usage - only capture git commits
  */
-function processBash(hookData) {
+async function processBash(hookData) {
   const { tool_input, cwd } = hookData;
 
   const command = tool_input?.command;
@@ -329,21 +329,21 @@ function processBash(hookData) {
     content: message
   };
 
-  appendLogEntry(entry, cwd || process.cwd());
+  await appendLogEntry(entry, cwd || process.cwd());
   return true;
 }
 
-function processToolUse(hookData) {
+async function processToolUse(hookData) {
   const { tool_name } = hookData;
 
   if (tool_name === 'TodoWrite') {
-    processTodoWrite(hookData);
+    await processTodoWrite(hookData);
   } else if (tool_name === 'TaskCreate') {
-    processTaskCreate(hookData);
+    await processTaskCreate(hookData);
   } else if (tool_name === 'TaskUpdate') {
-    processTaskUpdate(hookData);
+    await processTaskUpdate(hookData);
   } else if (tool_name === 'Bash') {
-    processBash(hookData);
+    await processBash(hookData);
   }
 
   process.exit(0);

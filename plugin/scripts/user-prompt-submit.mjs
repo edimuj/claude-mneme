@@ -12,21 +12,21 @@ import { ensureMemoryDirs, appendLogEntry, logError } from './utils.mjs';
 let input = '';
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', chunk => input += chunk);
-process.stdin.on('end', () => {
+process.stdin.on('end', async () => {
   if (!input.trim()) {
     process.exit(0);
     return;
   }
   try {
     const hookData = JSON.parse(input);
-    processPrompt(hookData);
+    await processPrompt(hookData);
   } catch (e) {
     logError(e, 'user-prompt-submit');
     process.exit(0);
   }
 });
 
-function processPrompt(hookData) {
+async function processPrompt(hookData) {
   const { prompt, cwd } = hookData;
 
   if (!prompt || typeof prompt !== 'string') {
@@ -73,7 +73,7 @@ function processPrompt(hookData) {
     content
   };
 
-  appendLogEntry(entry, cwd || process.cwd());
+  await appendLogEntry(entry, cwd || process.cwd());
   process.exit(0);
 }
 

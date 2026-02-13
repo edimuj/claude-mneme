@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-3.0.4-blue" alt="Version">
+  <img src="https://img.shields.io/badge/version-3.1.0-blue" alt="Version">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
   <img src="https://img.shields.io/badge/node-%3E%3D18-brightgreen" alt="Node">
   <img src="https://img.shields.io/badge/claude--code-plugin-orange" alt="Claude Code Plugin">
@@ -234,6 +234,17 @@ Entities older than `maxAgeDays` are automatically pruned. Set to `0` to disable
 </details>
 
 ## How It Works
+
+### Architecture
+
+Mneme has two server components — don't confuse them:
+
+| Component | Location | Purpose |
+|-----------|----------|---------|
+| **Plugin Service** | `plugin/server/` | Local background process that hooks communicate with during a session. Handles log writes, deduplication, caching, and summarization |
+| **Sync Server** | `server/` | Optional remote server for syncing memory across machines. Not needed for single-machine use |
+
+### Lifecycle Hooks
 
 Mneme hooks into Claude Code's lifecycle events:
 

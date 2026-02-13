@@ -26,7 +26,8 @@ claude plugin add --from https://github.com/edimuj/claude-mneme/tree/main/plugin
 - Summarizes old entries with Haiku when the log grows
 - Injects relevant context at session start (decisions, state, recent work)
 - Tracks files, functions, and errors for smarter context selection
-- Optional sync server for multi-machine memory
+- Local **Plugin Service** coordinates hooks during a session (log writes, caching, summarization)
+- Optional **Sync Server** for multi-machine memory
 
 ## Commands
 

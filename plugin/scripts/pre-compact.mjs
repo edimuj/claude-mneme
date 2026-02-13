@@ -475,7 +475,7 @@ async function processPreCompact(hookData) {
       if (extracted.keyPoints?.length) summaryParts.push(`${extracted.keyPoints.length} key points`);
 
       if (summaryParts.length > 0) {
-        appendLogEntry({
+        await appendLogEntry({
           ts: new Date().toISOString(),
           type: 'compact',
           trigger,

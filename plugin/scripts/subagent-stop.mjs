@@ -14,10 +14,10 @@ import { ensureMemoryDirs, loadConfig, appendLogEntry, extractiveSummarize, stri
 let input = '';
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', chunk => input += chunk);
-process.stdin.on('end', () => {
+process.stdin.on('end', async () => {
   try {
     const hookData = JSON.parse(input);
-    processSubagentStop(hookData);
+    await processSubagentStop(hookData);
   } catch (e) {
     logError(e, 'subagent-stop');
     process.exit(0);
@@ -123,7 +123,7 @@ function isDuplicateOfRecentResponse(content, logPath) {
   return false;
 }
 
-function processSubagentStop(hookData) {
+async function processSubagentStop(hookData) {
   const { agent_type, task_description, transcript_path, cwd } = hookData;
 
   const transcript = readTranscript(transcript_path);
@@ -195,7 +195,7 @@ function processSubagentStop(hookData) {
     content
   };
 
-  appendLogEntry(entry, cwd || process.cwd());
+  await appendLogEntry(entry, cwd || process.cwd());
   process.exit(0);
 }
 

@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mneme Dashboard</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0d1117; --surface: #161b22; --border: #30363d;
+    --text: #e6edf3; --text-muted: #8b949e; --accent: #58a6ff;
+    --accent-dim: #1f6feb33; --green: #3fb950; --red: #f85149;
+    --orange: #d29922; --sidebar-w: 260px;
+  }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); display: flex; height: 100vh; overflow: hidden; font-size: 14px; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* Sidebar */
+  #sidebar { width: var(--sidebar-w); min-width: var(--sidebar-w); background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+  #sidebar-header { padding: 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  #sidebar-header h1 { font-size: 16px; font-weight: 600; }
+  #sidebar-header .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  .status-running { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .status-stopped { background: var(--red); opacity: 0.6; }
+  #project-list { flex: 1; overflow-y: auto; padding: 8px 0; }
+  .sidebar-item { display: block; padding: 8px 16px; color: var(--text-muted); cursor: pointer; border-left: 3px solid transparent; transition: all 0.15s; }
+  .sidebar-item:hover { background: var(--accent-dim); color: var(--text); text-decoration: none; }
+  .sidebar-item.active { border-left-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+  .sidebar-section { padding: 12px 16px 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
+  #sidebar-footer { border-top: 1px solid var(--border); padding: 8px 0; }
+
+  /* Main */
+  #main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  #toolbar { padding: 12px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; }
+  #toolbar h2 { font-size: 18px; font-weight: 600; flex: 1; }
+  .btn { padding: 6px 14px; border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 6px; cursor: pointer; font-size: 13px; }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  #content { flex: 1; overflow-y: auto; padding: 20px; }
+
+  /* Tabs */
+  .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+  .tab { padding: 8px 16px; cursor: pointer; color: var(--text-muted); border-bottom: 2px solid transparent; transition: all 0.15s; font-size: 13px; }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* Cards & Panels */
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 12px; }
+  .card h3 { font-size: 14px; margin-bottom: 8px; color: var(--text-muted); }
+  .stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .stat { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
+  .stat .label { font-size: 11px; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em; }
+  .stat .value { font-size: 24px; font-weight: 600; margin-top: 4px; }
+
+  /* Log entries */
+  .log-entry { padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .log-entry:last-child { border-bottom: none; }
+  .log-meta { display: flex; gap: 10px; align-items: center; margin-bottom: 4px; }
+  .log-content { color: var(--text-muted); line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+  .log-content.truncated { cursor: pointer; }
+  .log-content.truncated:hover { color: var(--text); }
+
+  /* Badges */
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 500; }
+  .badge-prompt { background: #1f6feb33; color: var(--accent); }
+  .badge-response { background: #3fb95033; color: var(--green); }
+  .badge-task { background: #d2992233; color: var(--orange); }
+  .badge-commit { background: #f8514933; color: var(--red); }
+  .badge-agent { background: #bc8cff33; color: #d2a8ff; }
+  .badge-note { background: #8b949e33; color: var(--text-muted); }
+  .badge-preference { background: #1f6feb33; color: var(--accent); }
+  .badge-project { background: #3fb95033; color: var(--green); }
+  .badge-fact { background: #d2992233; color: var(--orange); }
+  .badge-lesson { background: #f8514933; color: var(--red); }
+
+  /* Filter pills */
+  .filters { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+  .filter-pill { padding: 4px 12px; border-radius: 14px; font-size: 12px; cursor: pointer; border: 1px solid var(--border); background: transparent; color: var(--text-muted); }
+  .filter-pill:hover { border-color: var(--text-muted); }
+  .filter-pill.active { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+
+  /* Entity groups */
+  .entity-group { margin-bottom: 16px; }
+  .entity-group h3 { font-size: 14px; margin-bottom: 8px; text-transform: capitalize; }
+  .entity-item { border: 1px solid var(--border); border-radius: 6px; margin-bottom: 6px; }
+  .entity-item summary { padding: 8px 12px; cursor: pointer; font-family: 'SFMono-Regular', Consolas, monospace; font-size: 13px; }
+  .entity-item summary:hover { background: var(--accent-dim); }
+  .entity-detail { padding: 8px 12px; border-top: 1px solid var(--border); font-size: 12px; color: var(--text-muted); }
+  .entity-detail .context-item { padding: 4px 0; border-bottom: 1px solid var(--border); }
+  .entity-detail .context-item:last-child { border-bottom: none; }
+
+  /* JSON / Code */
+  pre, code { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace; font-size: 13px; }
+  .json-view { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; overflow-x: auto; white-space: pre-wrap; word-break: break-word; line-height: 1.5; }
+  .json-key { color: #79c0ff; }
+  .json-string { color: #a5d6ff; }
+  .json-number { color: #d2a8ff; }
+  .json-bool { color: #ff7b72; }
+  .json-null { color: var(--text-muted); }
+
+  /* Error entries */
+  .error-entry { padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .error-entry .error-context { color: var(--orange); font-weight: 500; }
+  .error-entry .error-message { color: var(--red); margin-top: 4px; }
+  .error-entry .error-stack { color: var(--text-muted); font-size: 12px; font-family: monospace; margin-top: 4px; }
+
+  /* Remembered */
+  .remembered-item { display: flex; gap: 10px; align-items: flex-start; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .remembered-item:last-child { border-bottom: none; }
+  .remembered-content { flex: 1; line-height: 1.5; }
+
+  /* Handoff */
+  .handoff-section { margin-bottom: 16px; }
+  .handoff-section h4 { color: var(--text-muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+  .handoff-text { line-height: 1.6; white-space: pre-wrap; }
+
+  /* Task list */
+  .task-item { padding: 10px 0; border-bottom: 1px solid var(--border); display: flex; gap: 10px; align-items: center; }
+  .task-status { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .task-status.completed { background: var(--green); }
+  .task-status.pending { background: var(--text-muted); }
+
+  /* Empty state */
+  .empty { text-align: center; padding: 40px; color: var(--text-muted); }
+
+  /* Summary markdown basic rendering */
+  .summary-md { line-height: 1.7; }
+  .summary-md h1, .summary-md h2, .summary-md h3 { margin: 16px 0 8px; }
+  .summary-md h1 { font-size: 18px; }
+  .summary-md h2 { font-size: 16px; }
+  .summary-md h3 { font-size: 14px; }
+  .summary-md p { margin-bottom: 8px; }
+  .summary-md ul, .summary-md ol { padding-left: 20px; margin-bottom: 8px; }
+  .summary-md li { margin-bottom: 4px; }
+  .summary-md code { background: var(--bg); padding: 2px 6px; border-radius: 4px; font-size: 12px; }
+  .summary-md strong { color: var(--accent); }
+
+  /* Timestamp */
+  .ts { color: var(--text-muted); font-size: 12px; cursor: default; }
+
+  /* Toggle */
+  .toggle-group { display: flex; gap: 0; margin-bottom: 12px; }
+  .toggle-btn { padding: 6px 14px; border: 1px solid var(--border); background: transparent; color: var(--text-muted); cursor: pointer; font-size: 12px; }
+  .toggle-btn:first-child { border-radius: 6px 0 0 6px; }
+  .toggle-btn:last-child { border-radius: 0 6px 6px 0; }
+  .toggle-btn.active { background: var(--accent-dim); color: var(--accent); border-color: var(--accent); }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+</style>
+</head>
+<body>
+  <nav id="sidebar">
+    <div id="sidebar-header">
+      <h1>Mneme</h1>
+      <span id="service-status" class="status-dot status-stopped" title="Plugin Service: checking..."></span>
+    </div>
+    <div class="sidebar-section">Projects</div>
+    <div id="project-list"></div>
+    <div id="sidebar-footer">
+      <a href="#/errors" class="sidebar-item" data-route="errors">Errors</a>
+      <a href="#/config" class="sidebar-item" data-route="config">Config</a>
+    </div>
+  </nav>
+
+  <div id="main">
+    <div id="toolbar">
+      <h2 id="page-title">Dashboard</h2>
+      <button class="btn" id="refresh-btn" title="Refresh data">Refresh</button>
+    </div>
+    <div id="content">
+      <div class="empty">Select a project from the sidebar</div>
+    </div>
+  </div>
+
+<script>
+// --- Utilities ---
+
+function esc(str) {
+  if (str == null) return '';
+  const d = document.createElement('div');
+  d.textContent = String(str);
+  return d.innerHTML;
+}
+
+function relativeTime(ts) {
+  if (!ts) return '';
+  const now = Date.now();
+  const then = new Date(ts).getTime();
+  const diff = now - then;
+  if (diff < 0) return 'just now';
+  const seconds = Math.floor(diff / 1000);
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}d ago`;
+  const months = Math.floor(days / 30);
+  return `${months}mo ago`;
+}
+
+function tsHtml(ts) {
+  if (!ts) return '';
+  return `<span class="ts" title="${esc(ts)}">${relativeTime(ts)}</span>`;
+}
+
+function badgeHtml(type) {
+  return `<span class="badge badge-${esc(type)}">${esc(type)}</span>`;
+}
+
+function truncate(str, len = 200) {
+  if (!str || str.length <= len) return esc(str);
+  return esc(str.slice(0, len)) + '...';
+}
+
+function syntaxHighlight(json) {
+  if (typeof json !== 'string') json = JSON.stringify(json, null, 2);
+  return json.replace(/("(?:\\.|[^"\\])*")\s*:/g, '<span class="json-key">$1</span>:')
+    .replace(/:\s*("(?:\\.|[^"\\])*")/g, ': <span class="json-string">$1</span>')
+    .replace(/:\s*(\d+\.?\d*)/g, ': <span class="json-number">$1</span>')
+    .replace(/:\s*(true|false)/g, ': <span class="json-bool">$1</span>')
+    .replace(/:\s*(null)/g, ': <span class="json-null">$1</span>');
+}
+
+function basicMarkdown(md) {
+  if (!md) return '';
+  let html = esc(md);
+  // Headers
+  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+  html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+  // Bold / italic
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  // Inline code
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // List items
+  html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
+  html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
+  // Paragraphs
+  html = html.replace(/\n\n/g, '</p><p>');
+  html = '<p>' + html + '</p>';
+  html = html.replace(/<p><(h[123]|ul|ol)/g, '<$1');
+  html = html.replace(/<\/(h[123]|ul|ol)><\/p>/g, '</$1>');
+  return html;
+}
+
+// --- State ---
+
+let state = {
+  projects: [],
+  currentProject: null,
+  projectData: null,
+  activeTab: 'overview',
+  logFilter: 'all',
+  summaryView: 'markdown',
+  serviceStatus: null,
+};
+
+// --- API ---
+
+async function api(path) {
+  const res = await fetch(path);
+  return res.json();
+}
+
+async function loadProjects() {
+  state.projects = await api('/api/projects');
+  renderSidebar();
+}
+
+async function loadProject(name) {
+  state.currentProject = name;
+  state.projectData = await api(`/api/projects/${encodeURIComponent(name)}`);
+  state.activeTab = getTabFromHash() || 'overview';
+  state.logFilter = 'all';
+  renderContent();
+  updateSidebarActive();
+}
+
+async function loadErrors() {
+  state.currentProject = null;
+  state.projectData = null;
+  const errors = await api('/api/errors');
+  renderErrors(errors);
+  updateSidebarActive();
+}
+
+async function loadConfig() {
+  state.currentProject = null;
+  state.projectData = null;
+  const config = await api('/api/config');
+  renderConfig(config);
+  updateSidebarActive();
+}
+
+async function checkServiceStatus() {
+  state.serviceStatus = await api('/api/service-status');
+  const dot = document.getElementById('service-status');
+  if (state.serviceStatus.running) {
+    dot.className = 'status-dot status-running';
+    dot.title = `Plugin Service: running (pid ${state.serviceStatus.pid}, port ${state.serviceStatus.port})`;
+  } else {
+    dot.className = 'status-dot status-stopped';
+    dot.title = 'Plugin Service: not running';
+  }
+}
+
+// --- Sidebar ---
+
+function renderSidebar() {
+  const list = document.getElementById('project-list');
+  list.innerHTML = state.projects.map(p =>
+    `<a href="#/project/${encodeURIComponent(p.name)}" class="sidebar-item" data-project="${esc(p.name)}">${esc(p.displayName)}</a>`
+  ).join('');
+  updateSidebarActive();
+}
+
+function updateSidebarActive() {
+  document.querySelectorAll('.sidebar-item').forEach(el => {
+    el.classList.remove('active');
+    if (el.dataset.project === state.currentProject) el.classList.add('active');
+    if (el.dataset.route === 'errors' && !state.currentProject && location.hash === '#/errors') el.classList.add('active');
+    if (el.dataset.route === 'config' && !state.currentProject && location.hash === '#/config') el.classList.add('active');
+  });
+}
+
+// --- Content Renderers ---
+
+function renderContent() {
+  const d = state.projectData;
+  if (!d) return;
+
+  document.getElementById('page-title').textContent = d.displayName;
+
+  const tabs = ['overview', 'log', 'summary', 'entities', 'remembered', 'handoff', 'tasks'];
+  const content = document.getElementById('content');
+  content.innerHTML = `
+    <div class="tabs">
+      ${tabs.map(t => `<div class="tab ${t === state.activeTab ? 'active' : ''}" data-tab="${t}">${t.charAt(0).toUpperCase() + t.slice(1)}</div>`).join('')}
+    </div>
+    <div id="tab-content"></div>
+  `;
+
+  content.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      state.activeTab = tab.dataset.tab;
+      updateHash();
+      renderContent();
+    });
+  });
+
+  const target = document.getElementById('tab-content');
+  const renderers = { overview: renderOverview, log: renderLog, summary: renderSummary, entities: renderEntities, remembered: renderRemembered, handoff: renderHandoff, tasks: renderTasks };
+  renderers[state.activeTab](target, d);
+}
+
+function renderOverview(el, d) {
+  const s = d.stats;
+  el.innerHTML = `
+    <div class="stat-grid">
+      <div class="stat"><div class="label">Log Entries</div><div class="value">${s.logEntries}</div></div>
+      <div class="stat"><div class="label">Entities</div><div class="value">${s.entityCount}</div></div>
+      <div class="stat"><div class="label">Remembered</div><div class="value">${s.rememberedCount}</div></div>
+      <div class="stat"><div class="label">Last Activity</div><div class="value" style="font-size:14px">${s.lastActivity ? relativeTime(s.lastActivity) : 'never'}</div></div>
+    </div>
+    ${s.logTypes ? `<div class="card"><h3>Entry Types</h3>${Object.entries(s.logTypes).map(([t, c]) => `${badgeHtml(t)} <span style="color:var(--text-muted)">${c}</span>&nbsp;&nbsp;`).join('')}</div>` : ''}
+    ${d.handoff ? `
+      <div class="card">
+        <h3>Last Handoff</h3>
+        ${d.handoff.workingOn ? `<div class="handoff-section"><h4>Working On</h4><div class="handoff-text">${esc(d.handoff.workingOn)}</div></div>` : ''}
+        ${d.handoff.lastDone ? `<div class="handoff-section"><h4>Last Done</h4><div class="handoff-text">${truncate(d.handoff.lastDone, 500)}</div></div>` : ''}
+        ${d.handoff.ts ? `<div style="color:var(--text-muted);font-size:12px">${tsHtml(d.handoff.ts)}</div>` : ''}
+      </div>
+    ` : ''}
+  `;
+}
+
+function renderLog(el, d) {
+  const types = ['all', ...new Set(d.log.map(e => e.type))];
+  const filtered = state.logFilter === 'all' ? d.log : d.log.filter(e => e.type === state.logFilter);
+  const reversed = [...filtered].reverse();
+
+  el.innerHTML = `
+    <div class="filters">
+      ${types.map(t => `<span class="filter-pill ${t === state.logFilter ? 'active' : ''}" data-filter="${t}">${t} ${t !== 'all' ? `(${d.log.filter(e => e.type === t).length})` : `(${d.log.length})`}</span>`).join('')}
+    </div>
+    <div id="log-entries">
+      ${reversed.length === 0 ? '<div class="empty">No log entries</div>' :
+        reversed.map(e => `
+          <div class="log-entry">
+            <div class="log-meta">
+              ${badgeHtml(e.type)}
+              ${tsHtml(e.ts)}
+              ${e.agent_type ? `<span style="color:var(--text-muted);font-size:12px">${esc(e.agent_type)}</span>` : ''}
+            </div>
+            <div class="log-content${(e.content && e.content.length > 200) ? ' truncated' : ''}" data-full="${esc(e.content)}" data-truncated="true">${truncate(e.content)}</div>
+          </div>
+        `).join('')}
+    </div>
+  `;
+
+  el.querySelectorAll('.filter-pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      state.logFilter = pill.dataset.filter;
+      renderLog(el, d);
+    });
+  });
+
+  el.querySelectorAll('.log-content.truncated').forEach(div => {
+    div.addEventListener('click', () => {
+      if (div.dataset.truncated === 'true') {
+        div.innerHTML = esc(div.dataset.full);
+        div.dataset.truncated = 'false';
+      } else {
+        div.innerHTML = truncate(div.dataset.full);
+        div.dataset.truncated = 'true';
+      }
+    });
+  });
+}
+
+function renderSummary(el, d) {
+  if (!d.summary && !d.summaryMd) {
+    el.innerHTML = '<div class="empty">No summary available</div>';
+    return;
+  }
+
+  el.innerHTML = `
+    <div class="toggle-group">
+      <button class="toggle-btn ${state.summaryView === 'markdown' ? 'active' : ''}" data-view="markdown">Rendered</button>
+      <button class="toggle-btn ${state.summaryView === 'json' ? 'active' : ''}" data-view="json">JSON</button>
+    </div>
+    <div id="summary-content"></div>
+  `;
+
+  el.querySelectorAll('.toggle-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.summaryView = btn.dataset.view;
+      renderSummaryContent();
+      el.querySelectorAll('.toggle-btn').forEach(b => b.classList.toggle('active', b.dataset.view === state.summaryView));
+    });
+  });
+
+  function renderSummaryContent() {
+    const target = document.getElementById('summary-content');
+    if (state.summaryView === 'markdown' && d.summaryMd) {
+      target.innerHTML = `<div class="summary-md">${basicMarkdown(d.summaryMd)}</div>`;
+    } else if (d.summary) {
+      target.innerHTML = `<pre class="json-view">${syntaxHighlight(JSON.stringify(d.summary, null, 2))}</pre>`;
+    } else {
+      target.innerHTML = '<div class="empty">No data for this view</div>';
+    }
+  }
+  renderSummaryContent();
+}
+
+function renderEntities(el, d) {
+  const entities = d.entities || {};
+  // Filter out metadata keys like _lastPruned
+  const categories = Object.keys(entities).filter(k => !k.startsWith('_') && typeof entities[k] === 'object' && entities[k] !== null);
+
+  if (categories.length === 0) {
+    el.innerHTML = '<div class="empty">No entities tracked</div>';
+    return;
+  }
+
+  el.innerHTML = categories.map(cat => {
+    const items = entities[cat];
+    const keys = Object.keys(items);
+    return `
+      <div class="entity-group">
+        <h3>${esc(cat)} <span style="color:var(--text-muted);font-weight:normal">(${keys.length})</span></h3>
+        ${keys.map(name => {
+          const item = items[name];
+          return `
+            <details class="entity-item">
+              <summary>${esc(name)} <span style="color:var(--text-muted);font-size:12px;margin-left:8px">${item.mentions || 0} mentions &middot; last ${relativeTime(item.lastSeen)}</span></summary>
+              <div class="entity-detail">
+                ${(item.contexts || []).map(ctx => `
+                  <div class="context-item">
+                    ${badgeHtml(ctx.type)} ${tsHtml(ctx.ts)}
+                    <div style="margin-top:4px">${esc(ctx.summary)}</div>
+                  </div>
+                `).join('')}
+              </div>
+            </details>
+          `;
+        }).join('')}
+      </div>
+    `;
+  }).join('');
+}
+
+function renderRemembered(el, d) {
+  const items = d.remembered || [];
+  if (items.length === 0) {
+    el.innerHTML = '<div class="empty">No remembered items</div>';
+    return;
+  }
+
+  el.innerHTML = items.map(item => `
+    <div class="remembered-item">
+      ${badgeHtml(item.type || 'note')}
+      <div class="remembered-content">${esc(item.content)}</div>
+      ${tsHtml(item.ts)}
+    </div>
+  `).join('');
+}
+
+function renderHandoff(el, d) {
+  const h = d.handoff;
+  if (!h) {
+    el.innerHTML = '<div class="empty">No handoff data</div>';
+    return;
+  }
+
+  el.innerHTML = `
+    ${h.ts ? `<div style="margin-bottom:16px;color:var(--text-muted)">${tsHtml(h.ts)}</div>` : ''}
+    ${h.workingOn ? `<div class="handoff-section"><h4>Working On</h4><div class="handoff-text">${esc(h.workingOn)}</div></div>` : ''}
+    ${h.lastDone ? `<div class="handoff-section"><h4>Last Done</h4><div class="handoff-text">${esc(h.lastDone)}</div></div>` : ''}
+    ${h.openItems && h.openItems.length > 0 ? `
+      <div class="handoff-section">
+        <h4>Open Items</h4>
+        <ul style="padding-left:20px">${h.openItems.map(i => `<li>${esc(i)}</li>`).join('')}</ul>
+      </div>
+    ` : '<div class="handoff-section"><h4>Open Items</h4><div style="color:var(--text-muted)">None</div></div>'}
+  `;
+}
+
+function renderTasks(el, d) {
+  const t = d.tasks;
+  if (!t || !t.tasks || Object.keys(t.tasks).length === 0) {
+    el.innerHTML = '<div class="empty">No active tasks</div>';
+    return;
+  }
+
+  const tasks = Object.entries(t.tasks);
+  el.innerHTML = tasks.map(([id, task]) => `
+    <div class="task-item">
+      <div class="task-status ${task.status || 'pending'}"></div>
+      <div>
+        <div><strong>#${esc(id)}</strong> ${esc(task.subject)}</div>
+        <div style="color:var(--text-muted);font-size:12px">${esc(task.status || 'pending')} &middot; ${tsHtml(task.createdAt)}</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderErrors(errors) {
+  document.getElementById('page-title').textContent = 'Errors';
+  const content = document.getElementById('content');
+
+  if (errors.length === 0) {
+    content.innerHTML = '<div class="empty">No errors logged</div>';
+    return;
+  }
+
+  const reversed = [...errors].reverse();
+  content.innerHTML = reversed.map(e => `
+    <div class="error-entry">
+      <div class="log-meta">
+        <span class="error-context">${esc(e.context)}</span>
+        ${tsHtml(e.ts)}
+      </div>
+      <div class="error-message">${esc(e.message)}</div>
+      ${e.stack ? `<div class="error-stack">${esc(e.stack)}</div>` : ''}
+    </div>
+  `).join('');
+}
+
+function renderConfig(config) {
+  document.getElementById('page-title').textContent = 'Config';
+  const content = document.getElementById('content');
+  content.innerHTML = `<pre class="json-view">${syntaxHighlight(JSON.stringify(config, null, 2))}</pre>`;
+}
+
+// --- Router ---
+
+function getTabFromHash() {
+  const match = location.hash.match(/^#\/project\/[^/]+\/(\w+)$/);
+  return match ? match[1] : null;
+}
+
+function updateHash() {
+  if (state.currentProject) {
+    const newHash = `#/project/${encodeURIComponent(state.currentProject)}/${state.activeTab}`;
+    if (location.hash !== newHash) history.replaceState(null, '', newHash);
+  }
+}
+
+function handleRoute() {
+  const hash = location.hash || '';
+
+  if (hash.startsWith('#/project/')) {
+    const parts = hash.slice(10).split('/');
+    const name = decodeURIComponent(parts[0]);
+    const tab = parts[1] || 'overview';
+    state.activeTab = tab;
+    loadProject(name);
+  } else if (hash === '#/errors') {
+    loadErrors();
+  } else if (hash === '#/config') {
+    loadConfig();
+  }
+}
+
+// --- Init ---
+
+window.addEventListener('hashchange', handleRoute);
+
+document.getElementById('refresh-btn').addEventListener('click', async () => {
+  await loadProjects();
+  await checkServiceStatus();
+  handleRoute();
+});
+
+(async () => {
+  await loadProjects();
+  await checkServiceStatus();
+  if (location.hash) {
+    handleRoute();
+  }
+})();
+</script>
+</body>
+</html>
