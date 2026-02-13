@@ -9,11 +9,14 @@ Persistent memory for Claude Code. Automatically captures your coding sessions a
 ## Quick Start
 
 ```bash
-# Install from marketplace
+# Install from npm
+claude plugin add --from npm:claude-mneme
+
+# Or from marketplace
 claude plugin marketplace add edimuj/claude-mneme
 claude plugin install claude-mneme
 
-# Or install directly from GitHub
+# Or directly from GitHub
 claude plugin add --from https://github.com/edimuj/claude-mneme/tree/main/plugin
 ```
 
@@ -37,4 +40,4 @@ claude plugin add --from https://github.com/edimuj/claude-mneme/tree/main/plugin
 
 ## Full Documentation
 
-See the [main README](../README.md) for installation options, configuration, architecture details, and sync server setup.
+See the [main README](https://github.com/edimuj/claude-mneme#readme) for installation options, configuration, architecture details, and sync server setup.

@@ -1,8 +1,25 @@
 {
   "name": "claude-mneme",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "license": "MIT",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/edimuj/claude-mneme.git",
+    "directory": "plugin"
+  },
+  "homepage": "https://github.com/edimuj/claude-mneme#readme",
+  "bugs": {
+    "url": "https://github.com/edimuj/claude-mneme/issues"
+  },
+  "keywords": [
+    "claude-code",
+    "claude-code-plugin",
+    "memory",
+    "persistent-memory",
+    "session-context",
+    "ai-tools"
+  ],
   "scripts": {
     "install-deps": "npm install",
     "test": "node --test scripts/utils.test.mjs",
