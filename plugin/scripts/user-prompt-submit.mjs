@@ -13,6 +13,10 @@ let input = '';
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', chunk => input += chunk);
 process.stdin.on('end', () => {
+  if (!input.trim()) {
+    process.exit(0);
+    return;
+  }
   try {
     const hookData = JSON.parse(input);
     processPrompt(hookData);

@@ -250,12 +250,14 @@ Example: ["Decided to use TypeScript for type safety", "Fixed auth bug by adding
       };
     }
 
+    let stderrOutput = '';
     const queryResult = query({
       prompt: messageGenerator(),
       options: {
         model: config.model,
         disallowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Grep', 'Glob', 'WebFetch', 'WebSearch', 'Task', 'TodoWrite'],
-        pathToClaudeCodeExecutable: config.claudePath
+        pathToClaudeCodeExecutable: config.claudePath,
+        stderr: (data) => { stderrOutput += data; }
       }
     });
 
@@ -270,7 +272,10 @@ Example: ["Decided to use TypeScript for type safety", "Fixed auth bug by adding
         }
       }
     } catch (iterError) {
-      if (!response) throw iterError;
+      if (!response) {
+        iterError.message += stderrOutput ? ` | stderr: ${stderrOutput.slice(0, 500)}` : ' | no stderr';
+        throw iterError;
+      }
     }
 
     if (response) {
