@@ -4,17 +4,25 @@
 
 # Claude Mneme — Plugin
 
-Persistent memory for Claude Code. Automatically captures your coding sessions and injects relevant context into new ones so Claude picks up where you left off.
+Persistent memory for Claude Code. Automatically captures your coding sessions and injects relevant context into new ones, so Claude picks up where you left off.
 
 ## Quick Start
 
-```bash
-# Install from npm
-claude plugin add --from npm:claude-mneme
+From inside a Claude Code session:
+```
+/plugin marketplace add edimuj/claude-mneme
+/plugin install claude-mneme
+```
 
-# Or from marketplace
+From the command line:
+
+```bash
+# Claude Code CLI
 claude plugin marketplace add edimuj/claude-mneme
 claude plugin install claude-mneme
+
+# Or from npm
+claude plugin add --from npm:claude-mneme
 
 # Or directly from GitHub
 claude plugin add --from https://github.com/edimuj/claude-mneme/tree/main/plugin
