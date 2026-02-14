@@ -1,33 +1,10 @@
 #!/usr/bin/env node
 /**
- * PostToolUse Hook - Task and Git Commit Capture
- * Captures task context from TodoWrite, TaskCreate, TaskUpdate
- * and commit messages from Bash git commits
+ * PostToolUse Hook - File Edit and Git Commit Capture
+ * Captures file modifications (Write, Edit) and commit messages from Bash git commits
  */
 
-import { readFileSync, writeFileSync, existsSync } from 'fs';
-import { join } from 'path';
-import { ensureMemoryDirs, appendLogEntry, withFileLock, logError } from './utils.mjs';
-
-/**
- * Read the persisted todo hash from disk (survives across process invocations)
- */
-function readLastTodoHash(projectDir) {
-  const hashPath = join(projectDir, '.last-todo-hash');
-  try {
-    return existsSync(hashPath) ? readFileSync(hashPath, 'utf-8').trim() : '';
-  } catch {
-    return '';
-  }
-}
-
-function writeLastTodoHash(projectDir, hash) {
-  try {
-    writeFileSync(join(projectDir, '.last-todo-hash'), hash);
-  } catch (e) {
-    logError(e, 'post-tool-use:writeLastTodoHash');
-  }
-}
+import { appendLogEntry, logError } from './utils.mjs';
 
 // Read hook input from stdin
 let input = '';
@@ -50,13 +27,6 @@ function extractCommitMessage(command) {
   if (!command || typeof command !== 'string') {
     return null;
   }
-
-  // Match various git commit patterns
-  // HEREDOC style: git commit -m "$(cat <<'EOF'\nmessage\nEOF\n)"
-  // git commit -m "message"
-  // git commit -m 'message'
-  // git commit -am "message"
-  // git commit --message="message"
 
   // HEREDOC pattern first — must check before simple -m (which would match the shell wrapper)
   let match = command.match(/<<['"]?EOF['"]?\s*\n\s*([^\n]+)/);
@@ -86,209 +56,24 @@ function extractCommitMessage(command) {
 }
 
 /**
- * Process TodoWrite tool usage
+ * Process Write or Edit tool usage - log the file path
  */
-async function processTodoWrite(hookData) {
+async function processFileEdit(hookData) {
   const { tool_input, cwd } = hookData;
 
-  const todos = tool_input?.todos;
-  if (!todos || !Array.isArray(todos) || todos.length === 0) {
-    return false;
-  }
-
-  // Extract meaningful task info
-  const inProgress = todos.filter(t => t.status === 'in_progress').map(t => t.content);
-  const completed = todos.filter(t => t.status === 'completed').map(t => t.content);
-  const pending = todos.filter(t => t.status === 'pending').map(t => t.content);
-
-  // Create a hash to detect significant changes
-  const todoHash = JSON.stringify({ inProgress, completed: completed.length, pending: pending.length });
-
-  // Only log if there's a meaningful change (new in_progress task or completions)
-  const paths = ensureMemoryDirs(cwd || process.cwd());
-  if (todoHash === readLastTodoHash(paths.project)) {
-    return false;
-  }
-  writeLastTodoHash(paths.project, todoHash);
-
-  // Build content focusing on what's being worked on
-  const parts = [];
-  if (inProgress.length > 0) {
-    parts.push(`Working on: ${inProgress.join(', ')}`);
-  }
-  if (completed.length > 0 && pending.length > 0) {
-    parts.push(`(${completed.length} done, ${pending.length} remaining)`);
-  }
-
-  if (parts.length === 0) {
+  const filePath = tool_input?.file_path;
+  if (!filePath || typeof filePath !== 'string') {
     return false;
   }
 
   const entry = {
     ts: new Date().toISOString(),
-    type: 'task',
-    content: parts.join(' ')
+    type: 'edit',
+    content: filePath
   };
 
   await appendLogEntry(entry, cwd || process.cwd());
   return true;
-}
-
-/**
- * Read the task subject tracking file
- * Enhanced to track full task lifecycle for outcome tracking
- */
-function readTaskTracking(projectDir) {
-  const trackingPath = join(projectDir, 'active-tasks.json');
-  if (existsSync(trackingPath)) {
-    try {
-      const data = JSON.parse(readFileSync(trackingPath, 'utf-8'));
-      // Migrate old format (simple subjects) to new format (task objects)
-      if (data.subjects && typeof Object.values(data.subjects)[0] === 'string') {
-        const migrated = { nextId: data.nextId, tasks: {} };
-        for (const [id, subject] of Object.entries(data.subjects)) {
-          migrated.tasks[id] = { subject, status: 'pending', createdAt: null };
-        }
-        return migrated;
-      }
-      return data;
-    } catch {
-      return { nextId: 1, tasks: {} };
-    }
-  }
-  return { nextId: 1, tasks: {} };
-}
-
-/**
- * Write the task subject tracking file
- */
-function writeTaskTracking(projectDir, tracking) {
-  const trackingPath = join(projectDir, 'active-tasks.json');
-  writeFileSync(trackingPath, JSON.stringify(tracking));
-}
-
-/**
- * Process TaskCreate tool usage
- * Stores the task with metadata for outcome tracking
- */
-async function processTaskCreate(hookData) {
-  const { tool_input, cwd } = hookData;
-
-  const { subject, description } = tool_input || {};
-  if (!subject) {
-    return false;
-  }
-
-  const paths = ensureMemoryDirs(cwd || process.cwd());
-  const taskLockPath = join(paths.project, 'active-tasks.json.lock');
-  const result = withFileLock(taskLockPath, () => {
-    const tracking = readTaskTracking(paths.project);
-
-    tracking.tasks = tracking.tasks || {};
-    const task = {
-      subject,
-      status: 'pending',
-      createdAt: new Date().toISOString()
-    };
-    if (description) task.description = description;
-    tracking.tasks[String(tracking.nextId)] = task;
-    tracking.nextId++;
-
-    writeTaskTracking(paths.project, tracking);
-    return true;
-  }, 5);
-  return result === true;
-}
-
-/**
- * Process TaskUpdate tool usage
- * Tracks task lifecycle and logs meaningful state changes with outcomes
- */
-async function processTaskUpdate(hookData) {
-  const { tool_input, cwd } = hookData;
-
-  const { taskId, status, subject } = tool_input || {};
-  if (!taskId) {
-    return false;
-  }
-
-  const effectiveCwd = cwd || process.cwd();
-  const paths = ensureMemoryDirs(effectiveCwd);
-  const taskLockPath = join(paths.project, 'active-tasks.json.lock');
-
-  // Collect log entries to append outside the lock (appendLogEntry has its own locking)
-  let logEntry = null;
-
-  const result = withFileLock(taskLockPath, () => {
-    const tracking = readTaskTracking(paths.project);
-    tracking.tasks = tracking.tasks || {};
-
-    const task = tracking.tasks[String(taskId)];
-
-    // Handle deleted tasks - log as abandoned if was in progress
-    if (status === 'deleted') {
-      if (task && task.status === 'in_progress') {
-        logEntry = {
-          ts: new Date().toISOString(),
-          type: 'task',
-          action: 'abandoned',
-          outcome: 'abandoned',
-          subject: task.subject,
-          duration: task.createdAt ? Date.now() - new Date(task.createdAt).getTime() : null
-        };
-        if (task.description) logEntry.description = task.description;
-      }
-      delete tracking.tasks[String(taskId)];
-      writeTaskTracking(paths.project, tracking);
-      return task?.status === 'in_progress';
-    }
-
-    // Update task status
-    if (task) {
-      task.status = status;
-
-      if (status === 'in_progress' && !task.startedAt) {
-        task.startedAt = new Date().toISOString();
-      }
-
-      if (status === 'completed') {
-        const resolvedSubject = subject || task.subject;
-        if (!resolvedSubject) return false;
-
-        logEntry = {
-          ts: new Date().toISOString(),
-          type: 'task',
-          action: 'completed',
-          outcome: 'completed',
-          subject: resolvedSubject,
-          duration: task.startedAt ? Date.now() - new Date(task.startedAt).getTime() : null
-        };
-
-        delete tracking.tasks[String(taskId)];
-        writeTaskTracking(paths.project, tracking);
-        return true;
-      }
-
-      writeTaskTracking(paths.project, tracking);
-    } else {
-      tracking.tasks[String(taskId)] = {
-        subject: subject || `Task ${taskId}`,
-        status: status || 'pending',
-        createdAt: new Date().toISOString(),
-        startedAt: status === 'in_progress' ? new Date().toISOString() : null
-      };
-      writeTaskTracking(paths.project, tracking);
-    }
-
-    return false;
-  }, 5);
-
-  // Append log entry outside the task lock to avoid nested lock contention
-  if (logEntry) {
-    await appendLogEntry(logEntry, effectiveCwd);
-  }
-
-  return result === true;
 }
 
 /**
@@ -336,12 +121,8 @@ async function processBash(hookData) {
 async function processToolUse(hookData) {
   const { tool_name } = hookData;
 
-  if (tool_name === 'TodoWrite') {
-    await processTodoWrite(hookData);
-  } else if (tool_name === 'TaskCreate') {
-    await processTaskCreate(hookData);
-  } else if (tool_name === 'TaskUpdate') {
-    await processTaskUpdate(hookData);
+  if (tool_name === 'Write' || tool_name === 'Edit') {
+    await processFileEdit(hookData);
   } else if (tool_name === 'Bash') {
     await processBash(hookData);
   }

@@ -404,7 +404,7 @@ export function loadConfig() {
       // Enable entity-based relevance boost
       useInRelevanceScoring: true,
       // Remove entities not seen in this many days (0 = never prune)
-      maxAgeDays: 30
+      maxAgeDays: 7
     },
 
     // Semantic deduplication configuration
@@ -517,7 +517,7 @@ export function loadConfig() {
  *      "Let me explain the changes." → removed
  * Only removes when there is substantive content afterwards.
  */
-export function stripLeadIns(text) {
+function stripLeadIns(text) {
   if (!text) return text;
   let result = text;
 
@@ -1330,7 +1330,7 @@ function updateEntityIndex(entry, cwd = process.cwd(), config = {}) {
  * Mutates the index object in place.
  */
 export function pruneEntityIndex(index, eeConfig = {}) {
-  const maxAgeDays = eeConfig.maxAgeDays ?? 30;
+  const maxAgeDays = eeConfig.maxAgeDays ?? 7;
   if (maxAgeDays <= 0) return; // Pruning disabled
 
   // Only prune once per day

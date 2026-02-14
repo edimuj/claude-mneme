@@ -471,7 +471,7 @@ node server/mneme-server.mjs
 
 ### Files NOT Synced
 
-`log.pending.jsonl`, `.cache.json`, `.last-session`, `active-tasks.json`, `handoff.json`
+`log.pending.jsonl`, `.cache.json`, `.last-session`, `handoff.json`
 
 ### Lock Behavior
 

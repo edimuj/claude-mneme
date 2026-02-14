@@ -108,7 +108,6 @@ function getProjectData(name) {
   const entities = readJsonSafe(join(dir, 'entities.json'), {});
   const remembered = readJsonSafe(join(dir, 'remembered.json'), []);
   const handoff = readJsonSafe(join(dir, 'handoff.json'));
-  const tasks = readJsonSafe(join(dir, 'active-tasks.json'));
 
   // Compute stats
   const logTypes = {};
@@ -136,7 +135,6 @@ function getProjectData(name) {
     entities,
     remembered,
     handoff,
-    tasks,
   };
 }
 

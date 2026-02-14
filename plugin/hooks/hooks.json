@@ -36,7 +36,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "TodoWrite",
+        "matcher": "Write",
         "hooks": [
           {
             "type": "command",
@@ -47,18 +47,7 @@
         ]
       },
       {
-        "matcher": "TaskCreate",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/post-tool-use.mjs\"",
-            "timeout": 5,
-            "async": true
-          }
-        ]
-      },
-      {
-        "matcher": "TaskUpdate",
+        "matcher": "Edit",
         "hooks": [
           {
             "type": "command",
@@ -80,18 +69,6 @@
         ]
       }
     ],
-    "SubagentStop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/subagent-stop.mjs\"",
-            "timeout": 5,
-            "async": true
-          }
-        ]
-      }
-    ],
     "Stop": [
       {
         "hooks": [
@@ -99,7 +76,13 @@
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/stop-capture.mjs\"",
             "timeout": 10
-          },
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/session-stop.mjs\"",

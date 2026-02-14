@@ -903,19 +903,19 @@ describe('pruneEntityIndex', () => {
     assert.equal(index.files['src/old.ts'], undefined, 'Old entity should be pruned after guard expires');
   });
 
-  it('uses default maxAgeDays of 30 when not configured', () => {
+  it('uses default maxAgeDays of 7 when not configured', () => {
     const index = {
       files: {
-        'src/old.ts': makeEntity(daysAgo(31)),
-        'src/fresh.ts': makeEntity(daysAgo(29)),
+        'src/old.ts': makeEntity(daysAgo(8)),
+        'src/fresh.ts': makeEntity(daysAgo(6)),
       },
       functions: {},
       errors: {},
       packages: {},
     };
     pruneEntityIndex(index); // no config
-    assert.equal(index.files['src/old.ts'], undefined, '31-day-old should be pruned by default');
-    assert.ok(index.files['src/fresh.ts'], '29-day-old should survive default cutoff');
+    assert.equal(index.files['src/old.ts'], undefined, '8-day-old should be pruned by default');
+    assert.ok(index.files['src/fresh.ts'], '6-day-old should survive default cutoff');
   });
 
   it('does not touch metadata keys stored alongside categories', () => {

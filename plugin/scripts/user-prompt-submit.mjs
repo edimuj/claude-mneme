@@ -3,7 +3,7 @@
  * UserPromptSubmit Hook
  * Captures user prompts to provide context for memory summarization
  *
- * Only logs prompts that are substantial (>10 chars) and not just commands
+ * Filters out confirmations and slash commands, captures everything else
  */
 
 import { ensureMemoryDirs, appendLogEntry, logError } from './utils.mjs';
@@ -35,14 +35,6 @@ async function processPrompt(hookData) {
   }
 
   const trimmedPrompt = prompt.trim();
-
-  // Skip very short prompts (likely just "yes", "ok", "continue", etc.)
-  // The confirmation patterns below catch specific short phrases, so this
-  // threshold only needs to filter truly meaningless fragments.
-  if (trimmedPrompt.length < 10) {
-    process.exit(0);
-    return;
-  }
 
   // Skip slash commands (they're logged elsewhere or not meaningful for memory)
   if (trimmedPrompt.startsWith('/')) {
