@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-3.3.0-blue" alt="Version">
+  <img src="https://img.shields.io/badge/version-3.3.1-blue" alt="Version">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
   <img src="https://img.shields.io/badge/node-%3E%3D18-brightgreen" alt="Node">
   <img src="https://img.shields.io/badge/claude--code-plugin-orange" alt="Claude Code Plugin">

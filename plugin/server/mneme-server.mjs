@@ -9,6 +9,7 @@
 import { createServer } from 'http';
 import { existsSync, writeFileSync, unlinkSync, readFileSync, appendFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
+import { fileURLToPath } from 'url';
 import { homedir } from 'os';
 import { LogService } from './log-service.mjs';
 import { SummarizationService } from './summarization-service.mjs';
@@ -164,12 +165,13 @@ class MnemeServer {
 
     this.port = this.server.address().port;
 
-    // Write PID file
+    // Write PID file (includes script path for version-mismatch detection)
     writeFileSync(PID_FILE, JSON.stringify({
       pid: process.pid,
       port: this.port,
       host: this.config.host,
-      startedAt: this.stats.startedAt
+      startedAt: this.stats.startedAt,
+      serverScript: fileURLToPath(import.meta.url)
     }));
 
     // Start inactivity monitor

@@ -52,7 +52,8 @@ export async function ensureServer() {
   // Check if server is already running
   if (existsSync(PID_FILE)) {
     try {
-      const { pid, host, port } = JSON.parse(readFileSync(PID_FILE, 'utf-8'));
+      const pidData = JSON.parse(readFileSync(PID_FILE, 'utf-8'));
+      const { pid, host, port } = pidData;
 
       // Verify process is alive
       try {
@@ -61,6 +62,18 @@ export async function ensureServer() {
         // Process dead, clean up stale PID file
         unlinkSync(PID_FILE);
         return ensureServer(); // Retry
+      }
+
+      // Check for version mismatch (plugin was reinstalled/upgraded)
+      // Missing serverScript means pre-upgrade server — also a mismatch
+      if (pidData.serverScript !== SERVER_SCRIPT) {
+        try {
+          process.kill(pid, 'SIGTERM');
+        } catch {}
+        unlinkSync(PID_FILE);
+        // Brief pause for the old process to release the port
+        await new Promise(r => setTimeout(r, 200));
+        return ensureServer(); // Restart with current version
       }
 
       // Verify server is responsive

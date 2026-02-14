@@ -204,11 +204,56 @@ function isDuplicateResponse(content, logPath) {
   return false;
 }
 
+/**
+ * Read transcript and find last assistant text, retrying if the file
+ * hasn't been fully flushed yet (race condition on first turn of new sessions)
+ */
+async function readTranscriptWithRetry(transcriptPath, maxRetries = 3, delayMs = 300) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const transcript = readTranscript(transcriptPath);
+    if (!transcript || transcript.length === 0) {
+      debugLog(`Attempt ${attempt}: no transcript entries`);
+      if (attempt < maxRetries) {
+        await new Promise(r => setTimeout(r, delayMs));
+        continue;
+      }
+      return { transcript: null, textContent: '' };
+    }
+
+    // Find last assistant message with text content
+    let textContent = '';
+    for (let i = transcript.length - 1; i >= 0; i--) {
+      if (transcript[i].role === 'assistant') {
+        const text = extractTextContent(transcript[i].content);
+        if (text && text.trim().length > 0) {
+          textContent = text;
+          break;
+        }
+      }
+    }
+
+    if (textContent) {
+      debugLog(`Attempt ${attempt}: found text (${textContent.length} chars)`);
+      return { transcript, textContent };
+    }
+
+    // Has assistant entries but no text — transcript may not be fully flushed
+    const hasAssistant = transcript.some(t => t.role === 'assistant');
+    if (hasAssistant && attempt < maxRetries) {
+      debugLog(`Attempt ${attempt}: ${transcript.length} entries, assistant present but no text — retrying in ${delayMs}ms`);
+      await new Promise(r => setTimeout(r, delayMs));
+      continue;
+    }
+
+    return { transcript, textContent: '' };
+  }
+  return { transcript: null, textContent: '' };
+}
+
 async function processStop(hookData) {
   const { transcript_path, cwd } = hookData;
 
-  // Read transcript from file path (Claude Code passes path, not data)
-  const transcript = readTranscript(transcript_path);
+  const { transcript, textContent } = await readTranscriptWithRetry(transcript_path);
 
   if (!transcript || transcript.length === 0) {
     debugLog(`EXIT: no transcript (path: ${transcript_path}, exists: ${transcript_path ? existsSync(transcript_path) : 'N/A'})`);
@@ -216,20 +261,6 @@ async function processStop(hookData) {
     return;
   }
   debugLog(`transcript entries: ${transcript.length}`);
-
-  // Find the last assistant message with actual text content
-  // The very last assistant message may only contain tool_use blocks,
-  // so walk backward until we find one with text
-  let textContent = '';
-  for (let i = transcript.length - 1; i >= 0; i--) {
-    if (transcript[i].role === 'assistant') {
-      const text = extractTextContent(transcript[i].content);
-      if (text && text.trim().length > 0) {
-        textContent = text;
-        break;
-      }
-    }
-  }
 
   if (!textContent) {
     debugLog('EXIT: no assistant message with text content found');

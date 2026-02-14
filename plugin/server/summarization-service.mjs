@@ -8,8 +8,12 @@
  */
 
 import { existsSync, readFileSync } from 'fs';
-import { join } from 'path';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import { spawn } from 'child_process';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+export const SUMMARIZE_SCRIPT = join(__dirname, '..', 'scripts', 'summarize.mjs');
 import { Throttler, ThrottleError } from './throttler.mjs';
 import { MemoryCache } from './memory-cache.mjs';
 
@@ -139,7 +143,7 @@ export class SummarizationService {
 
     return new Promise((resolve, reject) => {
       const child = spawn('node', [
-        join(process.cwd(), 'plugin/scripts/summarize.mjs'),
+        SUMMARIZE_SCRIPT,
         projectDir
       ], {
         stdio: 'inherit'
