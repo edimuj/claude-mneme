@@ -7,11 +7,12 @@
  */
 
 import { createServer } from 'http';
-import { existsSync, writeFileSync, unlinkSync, readFileSync, appendFileSync } from 'fs';
+import { existsSync, writeFileSync, unlinkSync, readFileSync, appendFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import { LogService } from './log-service.mjs';
 import { SummarizationService } from './summarization-service.mjs';
+import { EntityService } from './entity-service.mjs';
 
 const MEMORY_BASE = join(homedir(), '.claude-mneme');
 const PID_FILE = join(MEMORY_BASE, '.server.pid');
@@ -81,12 +82,26 @@ class MnemeServer {
     };
 
     // Initialize services
-    this.logService = new LogService(this.config, this.logger);
     this.summarizationService = new SummarizationService(
       this.config,
       this.logger,
       (project) => this.getProjectMemoryDir(project)
     );
+    this.entityService = new EntityService(
+      this.config,
+      this.logger,
+      (project) => this.getProjectMemoryDir(project)
+    );
+    this.logService = new LogService(this.config, this.logger, {
+      onEntriesWritten: (project, entries) => {
+        // Entity extraction (server is single writer — no lock needed)
+        this.entityService.processEntries(project, entries);
+        // Cache invalidation
+        this.invalidateProjectCache(project);
+        // Summarization check (fire-and-forget)
+        this.summarizationService.trigger(project, false).catch(() => {});
+      }
+    });
   }
 
   /**
@@ -95,6 +110,24 @@ class MnemeServer {
   getProjectMemoryDir(project) {
     const safeName = project.replace(/^\//, '-').replace(/\//g, '-');
     return join(MEMORY_BASE, 'projects', safeName);
+  }
+
+  /**
+   * Invalidate project cache — writes {} to .cache.json
+   */
+  invalidateProjectCache(project) {
+    try {
+      const projectDir = this.getProjectMemoryDir(project);
+      const cachePath = join(projectDir, '.cache.json');
+      if (!existsSync(projectDir)) {
+        mkdirSync(projectDir, { recursive: true });
+      }
+      writeFileSync(cachePath, '{}');
+    } catch (err) {
+      this.logger.error('cache-invalidation-failed', {
+        project, error: err.message
+      });
+    }
   }
 
   async start() {
@@ -242,8 +275,7 @@ class MnemeServer {
       activeSessions: this.sessions.size,
       queueDepth: {
         log: this.logService.queueDepth(),
-        summarize: sumStats.runningCount,
-        entity: 0      // TODO: Phase 4
+        summarize: sumStats.runningCount
       },
       cache: {
         hitRate: sumStats.cacheStats.hitRate,
@@ -264,7 +296,8 @@ class MnemeServer {
           completed: sumStats.summarizationsCompleted,
           failed: sumStats.summarizationsFailed,
           throttled: sumStats.throttled
-        }
+        },
+        entity: this.entityService.getStats()
       }
     };
 

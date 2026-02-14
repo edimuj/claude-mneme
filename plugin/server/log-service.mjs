@@ -12,9 +12,10 @@ import { BatchQueue } from './batch-queue.mjs';
 import { Deduplicator } from './deduplicator.mjs';
 
 export class LogService {
-  constructor(config, logger) {
+  constructor(config, logger, { onEntriesWritten } = {}) {
     this.config = config;
     this.logger = logger;
+    this.onEntriesWritten = onEntriesWritten || null;
     this.deduplicator = new Deduplicator({ windowMs: 5000 });
     this.stats = {
       entriesReceived: 0,
@@ -71,11 +72,16 @@ export class LogService {
       byProject.get(project).push(entry);
     }
 
-    // Write to each project's log file
+    // Write to each project's log file, then notify server per-project
     for (const [project, entries] of byProject) {
       try {
         this.writeToLog(project, entries);
         this.stats.entriesWritten += entries.length;
+
+        // Notify server with project + entries for post-write processing
+        if (this.onEntriesWritten) {
+          try { this.onEntriesWritten(project, entries); } catch {}
+        }
       } catch (err) {
         this.stats.writeErrors++;
         this.logger.error('log-write-failed', {

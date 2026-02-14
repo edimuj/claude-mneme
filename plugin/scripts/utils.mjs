@@ -8,6 +8,30 @@ import { homedir } from 'os';
 import { join, basename, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
+// Re-export entity functions from shared module (used by both hooks and server)
+export {
+  extractFilePaths, isFileFalsePositive,
+  extractFunctionNames,
+  extractErrorMessages,
+  extractPackageNames, isValidPackageName,
+  extractEntitiesFromEntry,
+  emptyEntityIndex,
+  pruneEntityIndex,
+  truncateContext,
+  calculateRecencyScore,
+  calculateEntityRelevanceScore
+} from '../lib/entities.mjs';
+
+// Also import for internal use within this module
+import {
+  extractFilePaths,
+  extractEntitiesFromEntry,
+  loadEntityIndex as _loadEntityIndex,
+  updateEntityIndex as _updateEntityIndex,
+  calculateRecencyScore,
+  calculateEntityRelevanceScore
+} from '../lib/entities.mjs';
+
 export const MEMORY_BASE = join(homedir(), '.claude-mneme');
 export const CONFIG_FILE = join(MEMORY_BASE, 'config.json');
 
@@ -948,419 +972,27 @@ function renderSummaryFull(summary, projectName) {
   return result.full;
 }
 
-/**
- * Extract file paths from entry content
- */
-export function extractFilePaths(entry, config = {}) {
-  const content = entry.content || entry.subject || '';
-  const paths = [];
-  const allowedExtensions = config.fileExtensions || [
-    'js', 'ts', 'jsx', 'tsx', 'mjs', 'cjs', 'py', 'rb', 'go', 'rs', 'java', 'cpp', 'c', 'h',
-    'css', 'scss', 'sass', 'less', 'html', 'vue', 'svelte', 'json', 'yaml', 'yml', 'md',
-    'sql', 'sh', 'bash', 'zsh', 'toml', 'xml', 'graphql', 'prisma'
-  ];
-  const minLength = config.minEntityLength || 2;
-
-  // Match common file path patterns - require path-like structure
-  const patterns = [
-    // Paths with directory separators
-    /(?:^|[\s"'`])([a-zA-Z0-9_\-.]+\/[a-zA-Z0-9_\-./]+\.[a-zA-Z]{1,6})(?:[\s"'`:]|$)/g,
-    // Files explicitly mentioned after keywords
-    /(?:file|in|from|to|edit|read|write|created|updated|modified)\s+[`"']?([a-zA-Z0-9_\-./]+\.[a-zA-Z]{1,6})[`"']?/gi,
-    // Backtick-wrapped files
-    /`([a-zA-Z0-9_\-./]+\.[a-zA-Z]{1,6})`/g,
-    // Standalone filenames with common extensions (stricter - must have recognizable pattern)
-    /(?:^|[\s"'`])([a-zA-Z][a-zA-Z0-9_\-]*\.(?:ts|js|tsx|jsx|mjs|py|go|rs|java|vue|svelte|md|json|yaml|yml))(?:[\s"'`:]|$)/g,
-  ];
-
-  for (const pattern of patterns) {
-    pattern.lastIndex = 0;
-    let match;
-    while ((match = pattern.exec(content)) !== null) {
-      const path = match[1];
-      if (path && path.length >= minLength && path.length < 100 && !paths.includes(path)) {
-        // Must have a recognizable extension
-        const ext = path.split('.').pop()?.toLowerCase();
-        if (ext && allowedExtensions.includes(ext)) {
-          // Exclude common false positives
-          if (!isFileFalsePositive(path)) {
-            paths.push(path);
-          }
-        }
-      }
-    }
-  }
-
-  return paths;
-}
+// --- Entity extraction functions moved to ../lib/entities.mjs ---
+// Pure functions re-exported at top of file.
+// Wrappers below adapt cwd-based signatures for backward compat.
 
 /**
- * Check if a matched path is a false positive
- */
-export function isFileFalsePositive(path) {
-  const lower = path.toLowerCase();
-  // Exclude version numbers (1.0.0.js), URLs (http://), etc.
-  if (/^\d+\.\d+/.test(path)) return true;
-  if (lower.startsWith('http') || lower.startsWith('www.')) return true;
-  // Exclude common words that match file patterns
-  const falsePositives = ['property', 'of.undefined', 'read.property'];
-  return falsePositives.some(fp => lower.includes(fp));
-}
-
-/**
- * Extract function/method names from entry content
- */
-export function extractFunctionNames(entry, config = {}) {
-  const content = entry.content || entry.subject || '';
-  const functions = [];
-  const minLength = config.minEntityLength || 3; // Functions should be at least 3 chars
-
-  // Match function patterns - be more conservative
-  const patterns = [
-    // Function declarations with clear syntax
-    /(?:function|const|let|var)\s+([a-zA-Z_$][a-zA-Z0-9_$]{2,})\s*(?:=\s*(?:async\s*)?\(|=\s*(?:async\s*)?function|\()/g,
-    // Backtick-wrapped function calls (common in docs/messages)
-    /`([a-zA-Z_$][a-zA-Z0-9_$]{2,})\s*\(`/g,
-    /`([a-zA-Z_$][a-zA-Z0-9_$]{2,})\(\)`/g,
-    // "the handleX function", "method handleX" - requires camelCase or snake_case
-    /(?:function|method|handler|callback)\s+[`"']?([a-zA-Z_$][a-zA-Z0-9_$]*[A-Z_][a-zA-Z0-9_$]*)[`"']?/gi,
-    // Python: def name( - must have decent length
-    /def\s+([a-zA-Z_][a-zA-Z0-9_]{2,})\s*\(/g,
-  ];
-
-  // Common false positives to exclude (expand the list)
-  const exclude = new Set([
-    // Keywords
-    'if', 'for', 'while', 'switch', 'catch', 'with', 'return', 'break', 'continue',
-    'new', 'typeof', 'instanceof', 'delete', 'void', 'throw', 'try', 'finally',
-    'import', 'export', 'from', 'require', 'module', 'default', 'case',
-    'class', 'extends', 'constructor', 'super', 'this', 'self', 'static',
-    'true', 'false', 'null', 'undefined', 'NaN', 'Infinity',
-    'async', 'await', 'yield', 'let', 'const', 'var', 'function',
-    // Built-in objects
-    'console', 'window', 'document', 'process', 'global', 'module', 'exports',
-    'Array', 'Object', 'String', 'Number', 'Boolean', 'Date', 'Math', 'JSON',
-    'Promise', 'Error', 'Map', 'Set', 'RegExp', 'Function', 'Symbol', 'BigInt',
-    'Buffer', 'Uint8Array', 'ArrayBuffer', 'DataView', 'Proxy', 'Reflect',
-    // Common methods (too generic)
-    'get', 'set', 'has', 'add', 'delete', 'clear', 'keys', 'values', 'entries',
-    'then', 'catch', 'finally', 'resolve', 'reject', 'all', 'race', 'any',
-    'log', 'error', 'warn', 'info', 'debug', 'trace', 'assert', 'dir', 'table',
-    'push', 'pop', 'shift', 'unshift', 'slice', 'splice', 'concat', 'join', 'flat',
-    'map', 'filter', 'reduce', 'forEach', 'find', 'some', 'every', 'includes', 'sort',
-    'length', 'size', 'indexOf', 'lastIndexOf', 'replace', 'split', 'trim', 'match',
-    'toString', 'valueOf', 'toJSON', 'toLocaleString', 'parse', 'stringify',
-    'read', 'write', 'open', 'close', 'send', 'receive', 'emit', 'on', 'off',
-    'start', 'stop', 'run', 'exec', 'call', 'apply', 'bind', 'create', 'destroy',
-    'init', 'setup', 'cleanup', 'reset', 'update', 'render', 'mount', 'unmount',
-    // Common short words that aren't useful
-    'was', 'the', 'not', 'and', 'for', 'are', 'but', 'can', 'has', 'had', 'did',
-    'use', 'will', 'would', 'could', 'should', 'may', 'might', 'must',
-  ]);
-
-  for (const pattern of patterns) {
-    pattern.lastIndex = 0;
-    let match;
-    while ((match = pattern.exec(content)) !== null) {
-      const name = match[1];
-      if (name && name.length >= minLength && name.length < 50 &&
-          !functions.includes(name) && !exclude.has(name) && !exclude.has(name.toLowerCase())) {
-        // Additional check: should look like a real function name (has mixed case or underscore)
-        if (/[A-Z]/.test(name) || name.includes('_') || name.length >= 6) {
-          functions.push(name);
-        }
-      }
-    }
-  }
-
-  return functions;
-}
-
-/**
- * Extract error messages from entry content
- */
-export function extractErrorMessages(entry, config = {}) {
-  const content = entry.content || entry.subject || '';
-  const errors = [];
-  const minLength = config.minEntityLength || 2;
-
-  // Match error patterns
-  const patterns = [
-    // Standard error types
-    /\b((?:Type|Reference|Syntax|Range|URI|Eval|Internal|Aggregate)?Error):\s*([^\n.]{5,100})/g,
-    // Exception patterns
-    /\b(Exception|Fault):\s*([^\n.]{5,100})/gi,
-    // "error:" prefix
-    /\berror:\s*([^\n.]{5,80})/gi,
-    // "failed:" or "failure:"
-    /\b(?:failed|failure):\s*([^\n.]{5,80})/gi,
-    // Stack trace first line
-    /^\s*at\s+([^\n]{10,100})/gm,
-  ];
-
-  for (const pattern of patterns) {
-    pattern.lastIndex = 0;
-    let match;
-    while ((match = pattern.exec(content)) !== null) {
-      // Combine error type and message if both captured
-      const errorMsg = match[2] ? `${match[1]}: ${match[2]}` : match[1];
-      const cleaned = errorMsg.trim().slice(0, 100); // Cap at 100 chars
-      if (cleaned.length >= minLength && !errors.includes(cleaned)) {
-        errors.push(cleaned);
-      }
-    }
-  }
-
-  return errors;
-}
-
-/**
- * Extract package/module names from entry content
- */
-export function extractPackageNames(entry, config = {}) {
-  const content = entry.content || entry.subject || '';
-  const packages = [];
-  const minLength = config.minEntityLength || 2;
-
-  // First, extract multi-package install commands
-  const installMatch = content.match(/(?:npm|yarn|pnpm)\s+(?:install|add|i)\s+([^\n]+)/gi);
-  if (installMatch) {
-    for (const cmd of installMatch) {
-      // Extract all packages from the command (space-separated after the verb)
-      const pkgPart = cmd.replace(/^(?:npm|yarn|pnpm)\s+(?:install|add|i)\s+/i, '');
-      const pkgNames = pkgPart.split(/\s+/).filter(p => p && !p.startsWith('-'));
-      for (let name of pkgNames) {
-        // Strip version specifier but keep scope
-        name = name.replace(/@[\d^~>=<.*]+$/, '');
-        if (isValidPackageName(name, minLength)) {
-          if (!packages.includes(name)) packages.push(name);
-        }
-      }
-    }
-  }
-
-  // Additional patterns for imports/requires
-  const patterns = [
-    // import from '@scope/package' or 'package'
-    /(?:import|from)\s+['"](@[a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+)['"]/g,
-    /(?:import|from)\s+['"]([a-zA-Z][a-zA-Z0-9_-]*)['"]/g,
-    // require('@scope/package') or require('package')
-    /require\s*\(\s*['"](@[a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+)['"]\s*\)/g,
-    /require\s*\(\s*['"]([a-zA-Z][a-zA-Z0-9_-]*)['"]\s*\)/g,
-    // pip install
-    /pip\s+install\s+([a-zA-Z][a-zA-Z0-9_-]*)/g,
-    // Scoped package names in backticks
-    /`(@[a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+)`/g,
-  ];
-
-  for (const pattern of patterns) {
-    pattern.lastIndex = 0;
-    let match;
-    while ((match = pattern.exec(content)) !== null) {
-      let name = match[1];
-      // Strip version specifier
-      name = name.replace(/@[\d^~>=<.*]+$/, '');
-      if (isValidPackageName(name, minLength) && !packages.includes(name)) {
-        packages.push(name);
-      }
-    }
-  }
-
-  return packages;
-}
-
-/**
- * Check if a string is a valid package name
- */
-export function isValidPackageName(name, minLength = 2) {
-  if (!name || name.length < minLength || name.length >= 60) return false;
-  if (name.startsWith('./') || name.startsWith('../') || name.startsWith('/')) return false;
-
-  // Node.js built-in modules to exclude
-  const exclude = new Set([
-    'fs', 'path', 'os', 'util', 'http', 'https', 'net', 'url', 'crypto',
-    'stream', 'events', 'buffer', 'child_process', 'cluster', 'dgram',
-    'dns', 'domain', 'readline', 'repl', 'tls', 'tty', 'v8', 'vm', 'zlib',
-    'assert', 'async_hooks', 'console', 'constants', 'perf_hooks', 'process',
-    'querystring', 'string_decoder', 'timers', 'worker_threads', 'inspector',
-    'module', 'punycode', 'sys', 'wasi',
-    // Common relative imports that slip through
-    'src', 'lib', 'dist', 'build', 'test', 'tests', 'spec', 'utils', 'helpers',
-    'components', 'pages', 'hooks', 'services', 'models', 'types', 'interfaces',
-  ]);
-
-  return !exclude.has(name);
-}
-
-/**
- * Extract all entities from an entry
- * @param {object} entry - Log entry
- * @param {object} config - Entity extraction config
- * @returns {object} Extracted entities by category
- */
-export function extractEntitiesFromEntry(entry, config = {}) {
-  const categories = config.categories || { files: true, functions: true, errors: true, packages: true };
-  const result = {};
-
-  if (categories.files !== false) {
-    const files = extractFilePaths(entry, config);
-    if (files.length > 0) result.files = files;
-  }
-
-  if (categories.functions !== false) {
-    const functions = extractFunctionNames(entry, config);
-    if (functions.length > 0) result.functions = functions;
-  }
-
-  if (categories.errors !== false) {
-    const errors = extractErrorMessages(entry, config);
-    if (errors.length > 0) result.errors = errors;
-  }
-
-  if (categories.packages !== false) {
-    const packages = extractPackageNames(entry, config);
-    if (packages.length > 0) result.packages = packages;
-  }
-
-  return result;
-}
-
-/**
- * Load entity index from file
+ * Load entity index (cwd-based wrapper for backward compat)
  */
 export function loadEntityIndex(cwd = process.cwd()) {
   const paths = ensureMemoryDirs(cwd);
-  if (existsSync(paths.entities)) {
-    try {
-      return JSON.parse(readFileSync(paths.entities, 'utf-8'));
-    } catch (e) {
-      logError(e, 'loadEntityIndex:entities.json');
-      return emptyEntityIndex();
-    }
-  }
-  return emptyEntityIndex();
+  return _loadEntityIndex(paths.project, logError);
 }
 
 /**
- * Empty entity index structure
- */
-export function emptyEntityIndex() {
-  return {
-    files: {},
-    functions: {},
-    errors: {},
-    packages: {},
-    lastUpdated: null
-  };
-}
-
-/**
- * Update entity index with entities from an entry
- * @param {object} entry - Log entry
- * @param {string} cwd - Working directory
- * @param {object} config - Full config
+ * Update entity index from a log entry (cwd-based wrapper)
  */
 function updateEntityIndex(entry, cwd = process.cwd(), config = {}) {
-  const eeConfig = config.entityExtraction || {};
-  if (eeConfig.enabled === false) return;
-
-  const entities = extractEntitiesFromEntry(entry, eeConfig);
-  if (Object.keys(entities).length === 0) return;
-
   const paths = ensureMemoryDirs(cwd);
-  const lockPath = paths.entities + '.lock';
-
-  // Lock the entire read-modify-write cycle to prevent concurrent updates
-  // from overwriting each other. If lock is contended, skip — entity data
-  // is reconstructable and losing one update is acceptable.
-  withFileLock(lockPath, () => {
-    const index = loadEntityIndex(cwd);
-    const maxContexts = eeConfig.maxContextsPerEntity || 5;
-
-    // Create context summary for this entry
-    const contextSummary = {
-      ts: entry.ts,
-      type: entry.type,
-      summary: truncateContext(entry.content || entry.subject || '', 80)
-    };
-
-    // Update each category
-    for (const [category, names] of Object.entries(entities)) {
-      if (!index[category]) index[category] = {};
-
-      for (const name of names) {
-        if (!index[category][name]) {
-          index[category][name] = {
-            mentions: 0,
-            lastSeen: null,
-            contexts: []
-          };
-        }
-
-        const entityData = index[category][name];
-        entityData.mentions++;
-        entityData.lastSeen = entry.ts;
-
-        // Add context, keeping only the most recent N
-        entityData.contexts.push(contextSummary);
-        if (entityData.contexts.length > maxContexts) {
-          entityData.contexts = entityData.contexts.slice(-maxContexts);
-        }
-      }
-    }
-
-    index.lastUpdated = new Date().toISOString();
-
-    // Prune stale entities (at most once per day)
-    pruneEntityIndex(index, eeConfig);
-
-    // Write updated index
-    try {
-      writeFileSync(paths.entities, JSON.stringify(index, null, 2));
-    } catch (e) {
-      logError(e, 'updateEntityIndex:write');
-    }
+  _updateEntityIndex(entry, paths.project, config, {
+    logErrorFn: logError,
+    withFileLockFn: withFileLock
   });
-}
-
-/**
- * Prune stale entities from the index.
- * Removes entities whose lastSeen is older than maxAgeDays.
- * Runs at most once per day (checks index.lastPruned).
- * Mutates the index object in place.
- */
-export function pruneEntityIndex(index, eeConfig = {}) {
-  const maxAgeDays = eeConfig.maxAgeDays ?? 7;
-  if (maxAgeDays <= 0) return; // Pruning disabled
-
-  // Only prune once per day
-  if (index.lastPruned) {
-    const sincePrune = Date.now() - new Date(index.lastPruned).getTime();
-    if (sincePrune < 24 * 60 * 60 * 1000) return;
-  }
-
-  const cutoff = Date.now() - (maxAgeDays * 24 * 60 * 60 * 1000);
-
-  for (const category of ['files', 'functions', 'errors', 'packages']) {
-    if (!index[category]) continue;
-    for (const [name, data] of Object.entries(index[category])) {
-      if (!data.lastSeen || new Date(data.lastSeen).getTime() < cutoff) {
-        delete index[category][name];
-      }
-    }
-  }
-
-  index.lastPruned = new Date().toISOString();
-}
-
-/**
- * Truncate text for context summaries
- */
-function truncateContext(text, maxLen) {
-  if (!text) return '';
-  const cleaned = text.replace(/\s+/g, ' ').trim();
-  if (cleaned.length <= maxLen) return cleaned;
-  return cleaned.slice(0, maxLen - 3) + '...';
 }
 
 const LABEL_STOPWORDS = new Set([
@@ -1556,15 +1188,6 @@ export function getRelevantEntities(cwd = process.cwd(), recentFiles = []) {
 /**
  * Calculate recency score with exponential decay
  * @param {string} timestamp - ISO timestamp of entry
- * @param {number} halfLifeHours - Hours until score drops to 50%
- * @returns {number} Score between 0 and 1
- */
-export function calculateRecencyScore(timestamp, halfLifeHours = 24) {
-  const ageMs = Date.now() - new Date(timestamp).getTime();
-  const ageHours = ageMs / (1000 * 60 * 60);
-  // Exponential decay: score = 0.5^(age/halfLife)
-  return Math.pow(0.5, ageHours / halfLifeHours);
-}
 
 /**
  * Calculate file relevance score based on path matching
@@ -1727,35 +1350,6 @@ export function deduplicateEntries(entries, config = {}) {
  * Calculate entity relevance score based on indexed entities
  * @param {object} entry - Log entry
  * @param {object} entityIndex - Entity index
- * @param {object} config - Entity extraction config
- * @returns {number} Score between 0 and 1
- */
-export function calculateEntityRelevanceScore(entry, entityIndex, config = {}) {
-  if (!entityIndex || Object.keys(entityIndex).length === 0) return 0.5;
-
-  const entities = extractEntitiesFromEntry(entry, config);
-  if (Object.keys(entities).length === 0) return 0.5;
-
-  let totalScore = 0;
-  let entityCount = 0;
-
-  // Score based on how "hot" the entities mentioned are (recent + frequent = hot)
-  for (const [category, names] of Object.entries(entities)) {
-    if (!entityIndex[category]) continue;
-
-    for (const name of names) {
-      const entityData = entityIndex[category][name];
-      if (!entityData) continue;
-
-      entityCount++;
-      const recency = entityData.lastSeen ? calculateRecencyScore(entityData.lastSeen, 24) : 0;
-      const frequency = Math.min(entityData.mentions / 10, 1);
-      totalScore += 0.6 * recency + 0.4 * frequency;
-    }
-  }
-
-  return entityCount > 0 ? totalScore / entityCount : 0.5;
-}
 
 /**
  * Score and rank log entries by relevance
@@ -1846,23 +1440,37 @@ export function scoreEntriesByRelevance(entries, cwd, config) {
  * Also extracts and indexes entities from the entry.
  */
 export async function appendLogEntry(entry, cwd = process.cwd()) {
-  const config = loadConfig();
   const project = getProjectRoot(cwd);
 
-  // Send to server (batched, deduplicated)
+  // Server-first: server handles entity extraction, cache invalidation, summarization
   try {
     const { getClient } = await import('../client/mneme-client.mjs');
     const client = await getClient();
     await client.appendLog(project, entry);
+    return;
   } catch (err) {
-    logError(err, 'appendLogEntry');
+    logError(err, 'appendLogEntry:server');
   }
 
-  // Extract and index entities from the entry (TODO: move to server in Phase 4)
+  // Fallback: server unavailable — process client-side
+  const config = loadConfig();
+  appendToPendingLog(entry, cwd);
   updateEntityIndex(entry, cwd, config);
-
-  // Invalidate cache since data has changed (TODO: move to server in Phase 3)
   invalidateCache(cwd);
+}
+
+/**
+ * Append entry to pending log (atomic append, no locking).
+ * Used as fallback when Plugin Service is unavailable.
+ */
+function appendToPendingLog(entry, cwd = process.cwd()) {
+  const paths = ensureMemoryDirs(cwd);
+  const pendingPath = paths.log.replace('.jsonl', '.pending.jsonl');
+  try {
+    appendFileSync(pendingPath, JSON.stringify(entry) + '\n');
+  } catch (e) {
+    logError(e, 'appendToPendingLog');
+  }
 }
 
 /**
