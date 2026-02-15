@@ -2,10 +2,19 @@
 
 import { readFileSync, unlinkSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { homedir } from 'node:os';
+import { homedir, networkInterfaces } from 'node:os';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
+
+function getLanIp() {
+  for (const ifaces of Object.values(networkInterfaces())) {
+    for (const iface of ifaces) {
+      if (iface.family === 'IPv4' && !iface.internal) return iface.address;
+    }
+  }
+  return 'localhost';
+}
 
 const MEMORY_BASE = join(homedir(), '.claude-mneme');
 const PID_FILE = join(MEMORY_BASE, '.dashboard.pid');
@@ -99,7 +108,7 @@ if (command === 'start') {
     process.exit(0);
   }
   const url = info.host === '0.0.0.0'
-    ? `http://localhost:${info.port}`
+    ? `http://${getLanIp()}:${info.port}`
     : `http://${info.host}:${info.port}`;
   const uptime = info.startedAt
     ? ` (up since ${new Date(info.startedAt).toLocaleString()})`

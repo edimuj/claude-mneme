@@ -6,6 +6,7 @@ import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
+import { networkInterfaces } from 'node:os';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MEMORY_BASE = join(homedir(), '.claude-mneme');
@@ -44,6 +45,15 @@ const port = (() => {
 })();
 const host = resolveArg('host') ?? config.host;
 
+function getLanIp() {
+  for (const ifaces of Object.values(networkInterfaces())) {
+    for (const iface of ifaces) {
+      if (iface.family === 'IPv4' && !iface.internal) return iface.address;
+    }
+  }
+  return 'localhost';
+}
+
 // --- Daemon mode ---
 
 if (process.argv.includes('--daemon')) {
@@ -58,7 +68,7 @@ if (process.argv.includes('--daemon')) {
     try {
       process.kill(child.pid, 0);
       const url = host === '0.0.0.0'
-        ? `http://localhost:${port}`
+        ? `http://${getLanIp()}:${port}`
         : `http://${host}:${port}`;
       console.log(`Dashboard started in background (PID ${child.pid}): ${url}`);
     } catch {
@@ -321,7 +331,7 @@ function startServer() {
   server.listen(port, host, () => {
     const displayHost = host === '0.0.0.0' ? 'all interfaces' : host;
     const accessUrl = host === '0.0.0.0'
-      ? `http://localhost:${port}`
+      ? `http://${getLanIp()}:${port}`
       : `http://${host}:${port}`;
     console.log(`Mneme Dashboard running at ${accessUrl} (${displayHost})`);
     writePidFile();
