@@ -626,6 +626,8 @@ document.getElementById('refresh-btn').addEventListener('click', async () => {
   if (location.hash) {
     handleRoute();
   }
+  // Poll service status every 5 seconds
+  setInterval(checkServiceStatus, 5000);
 })();
 </script>
 </body>

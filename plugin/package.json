@@ -26,7 +26,10 @@
     "test:server": "node server/test-server.mjs",
     "test:log": "node server/test-log-service.mjs",
     "test:summarization": "node server/test-summarization.mjs",
-    "dashboard": "node dashboard/server.mjs"
+    "dashboard": "node dashboard/server.mjs",
+    "dashboard:start": "node dashboard/dashboard-ctl.mjs start",
+    "dashboard:stop": "node dashboard/dashboard-ctl.mjs stop",
+    "dashboard:status": "node dashboard/dashboard-ctl.mjs status"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.31"

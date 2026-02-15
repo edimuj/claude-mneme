@@ -463,6 +463,12 @@ export function loadConfig() {
       maxAgeSeconds: 60                 // Cache validity in seconds
     },
 
+    // Dashboard configuration
+    dashboard: {
+      port: 3848,
+      host: '127.0.0.1',
+    },
+
     // Sync server configuration (optional)
     sync: {
       enabled: false,                   // Local-only by default
