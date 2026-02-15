@@ -3,15 +3,19 @@
  * Force Manual Summarization
  *
  * Triggers summarization regardless of entry count.
- * Used by the /summarize slash command.
+ * Used by the /summarize slash command and dashboard.
  *
- * Usage: node mem-summarize.mjs [--dry-run]
+ * Usage: node mem-summarize.mjs [--dry-run] [--force] [--project-dir <dir>]
  *
  * Options:
- *   --dry-run   Show what would be summarized without actually doing it
+ *   --dry-run       Show what would be summarized without actually doing it
+ *   --force         Skip minimum entry count check
+ *   --project-dir   Use memory dir directly (bypasses cwd-based resolution)
  */
 
 import { readFileSync, writeFileSync, existsSync, unlinkSync } from 'fs';
+import { join, basename } from 'node:path';
+import { homedir } from 'node:os';
 import {
   ensureDeps,
   ensureMemoryDirs,
@@ -25,14 +29,37 @@ import {
   logError
 } from './utils.mjs';
 
-const cwd = process.cwd();
 const dryRun = process.argv.includes('--dry-run');
-const paths = ensureMemoryDirs(cwd);
-const config = loadConfig();
-const projectName = getProjectName(cwd);
+const force = process.argv.includes('--force');
+const projectDirIdx = process.argv.indexOf('--project-dir');
+const projectDirArg = projectDirIdx >= 0 ? process.argv[projectDirIdx + 1] : null;
 
-// Flush any pending entries first
-flushPendingLog(cwd, 0);
+let paths, projectName;
+
+if (projectDirArg) {
+  // Dashboard mode: memory dir provided directly
+  const base = join(homedir(), '.claude-mneme');
+  projectName = basename(projectDirArg);
+  paths = {
+    base,
+    project: projectDirArg,
+    log: join(projectDirArg, 'log.jsonl'),
+    summaryJson: join(projectDirArg, 'summary.json'),
+    summary: join(projectDirArg, 'summary.md'),
+    remembered: join(projectDirArg, 'remembered.json'),
+    entities: join(projectDirArg, 'entities.json'),
+    cache: join(projectDirArg, '.cache.json'),
+    lastSession: join(projectDirArg, '.last-session'),
+    handoff: join(projectDirArg, 'handoff.json'),
+    config: join(base, 'config.json'),
+  };
+} else {
+  const cwd = process.cwd();
+  paths = ensureMemoryDirs(cwd);
+  projectName = getProjectName(cwd);
+  // Flush any pending entries first
+  flushPendingLog(cwd, 0);
+}
 
 // Check if log exists
 if (!existsSync(paths.log)) {
@@ -102,7 +129,7 @@ if (dryRun) {
 
 // Minimum entries to summarize (at least 3 to be meaningful)
 const minEntriesToSummarize = 3;
-if (entryCount < minEntriesToSummarize) {
+if (!force && entryCount < minEntriesToSummarize) {
   console.log(JSON.stringify({
     project: projectName,
     status: 'skipped',

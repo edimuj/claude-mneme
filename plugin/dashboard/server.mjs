@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 
 import { createServer } from 'node:http';
-import { readFileSync, readdirSync, existsSync, statSync, writeFileSync, unlinkSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync, statSync, writeFileSync, unlinkSync, openSync, closeSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { spawn } from 'node:child_process';
+import { spawn, execFile } from 'node:child_process';
 import { networkInterfaces } from 'node:os';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -247,15 +247,121 @@ function getServiceStatus() {
   }
 }
 
+// --- Mutation Helpers ---
+
+function readBody(req, maxBytes = 1024 * 1024) {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    let bytes = 0;
+    req.on('data', chunk => {
+      bytes += chunk.length;
+      if (bytes > maxBytes) { req.destroy(); reject(new Error('Body too large')); return; }
+      body += chunk;
+    });
+    req.on('end', () => {
+      try { resolve(JSON.parse(body)); }
+      catch { reject(new Error('Invalid JSON')); }
+    });
+    req.on('error', reject);
+  });
+}
+
+function withFileLock(lockPath, fn, staleSec = 10) {
+  // Check for stale lock
+  if (existsSync(lockPath)) {
+    try {
+      const lockTime = parseInt(readFileSync(lockPath, 'utf-8').trim(), 10);
+      if (lockTime && Date.now() - lockTime < staleSec * 1000) {
+        throw new Error('Resource is locked');
+      }
+    } catch (e) {
+      if (e.message === 'Resource is locked') throw e;
+    }
+  }
+  writeFileSync(lockPath, Date.now().toString());
+  try {
+    return fn();
+  } finally {
+    try { unlinkSync(lockPath); } catch {}
+  }
+}
+
+function invalidateProjectCache(projectName) {
+  const cachePath = join(PROJECTS_DIR, projectName, '.cache.json');
+  try { writeFileSync(cachePath, '{}\n'); } catch {}
+}
+
+const MEM_SUMMARIZE_SCRIPT = join(__dirname, '..', 'scripts', 'mem-summarize.mjs');
+
+async function handleSummarize(projectName) {
+  const projectDir = join(PROJECTS_DIR, projectName);
+  return new Promise((resolve, reject) => {
+    let stdout = '';
+    let stderr = '';
+    const child = execFile(process.execPath, [MEM_SUMMARIZE_SCRIPT, '--force', '--project-dir', projectDir], {
+      timeout: 120000,
+    }, (err) => {
+      invalidateProjectCache(projectName);
+      if (err) {
+        resolve({ status: 'error', message: err.message, stderr });
+        return;
+      }
+      try { resolve(JSON.parse(stdout)); }
+      catch { resolve({ status: 'error', message: 'Could not parse output', stdout }); }
+    });
+    child.stdout.on('data', d => stdout += d);
+    child.stderr.on('data', d => stderr += d);
+  });
+}
+
+function handleDeleteRemembered(projectName, index) {
+  const filePath = join(PROJECTS_DIR, projectName, 'remembered.json');
+  return withFileLock(filePath + '.lock', () => {
+    const items = readJsonSafe(filePath, []);
+    if (index < 0 || index >= items.length) throw new Error(`Index ${index} out of range (${items.length} items)`);
+    const removed = items.splice(index, 1)[0];
+    writeFileSync(filePath, JSON.stringify(items, null, 2) + '\n');
+    invalidateProjectCache(projectName);
+    return { status: 'ok', removed };
+  });
+}
+
+function handleDeleteEntity(projectName, category, entity) {
+  const filePath = join(PROJECTS_DIR, projectName, 'entities.json');
+  return withFileLock(filePath + '.lock', () => {
+    const data = readJsonSafe(filePath, {});
+    if (!data[category] || !data[category][entity]) throw new Error(`Entity "${entity}" not found in "${category}"`);
+    const removed = data[category][entity];
+    delete data[category][entity];
+    if (Object.keys(data[category]).length === 0) delete data[category];
+    writeFileSync(filePath, JSON.stringify(data, null, 2) + '\n');
+    invalidateProjectCache(projectName);
+    return { status: 'ok', removed };
+  });
+}
+
+function handleDeleteLog(projectName, index) {
+  const filePath = join(PROJECTS_DIR, projectName, 'log.jsonl');
+  return withFileLock(filePath + '.wlock', () => {
+    const lines = readFileSync(filePath, 'utf-8').trim().split('\n').filter(l => l);
+    if (index < 0 || index >= lines.length) throw new Error(`Index ${index} out of range (${lines.length} entries)`);
+    const removed = JSON.parse(lines[index]);
+    lines.splice(index, 1);
+    writeFileSync(filePath, lines.length > 0 ? lines.join('\n') + '\n' : '');
+    invalidateProjectCache(projectName);
+    return { status: 'ok', removed };
+  });
+}
+
 // --- Router ---
 
-function handleRequest(req, res) {
+async function handleRequest(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const path = url.pathname;
 
   res.setHeader('X-Content-Type-Options', 'nosniff');
 
-  if (req.method !== 'GET') {
+  if (req.method !== 'GET' && req.method !== 'POST') {
     res.writeHead(405, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Method not allowed' }));
     return;
@@ -280,13 +386,47 @@ function handleRequest(req, res) {
   }
 
   // API routes
-  if (path === '/api/projects') {
+  if (path === '/api/projects' && req.method === 'GET') {
     sendJson(res, getProjects());
     return;
   }
 
-  const projectMatch = path.match(/^\/api\/projects\/(.+)$/);
-  if (projectMatch) {
+  // POST mutation routes: /api/projects/:name/<action>
+  const mutationMatch = path.match(/^\/api\/projects\/([^/]+)\/(summarize|remembered\/delete|entities\/delete|log\/delete)$/);
+  if (mutationMatch && req.method === 'POST') {
+    const projectName = decodeURIComponent(mutationMatch[1]);
+    const action = mutationMatch[2];
+    if (!isValidProjectName(projectName)) {
+      sendJson(res, { error: 'Project not found' }, 404);
+      return;
+    }
+    try {
+      const body = await readBody(req);
+      let result;
+      switch (action) {
+        case 'summarize':
+          result = await handleSummarize(projectName);
+          break;
+        case 'remembered/delete':
+          result = handleDeleteRemembered(projectName, body.index);
+          break;
+        case 'entities/delete':
+          result = handleDeleteEntity(projectName, body.category, body.entity);
+          break;
+        case 'log/delete':
+          result = handleDeleteLog(projectName, body.index);
+          break;
+      }
+      sendJson(res, result);
+    } catch (err) {
+      sendJson(res, { error: err.message }, 400);
+    }
+    return;
+  }
+
+  // GET project data: /api/projects/:name
+  const projectMatch = path.match(/^\/api\/projects\/([^/]+)$/);
+  if (projectMatch && req.method === 'GET') {
     const projectName = decodeURIComponent(projectMatch[1]);
     const data = getProjectData(projectName);
     if (!data) {

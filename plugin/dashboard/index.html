@@ -120,6 +120,14 @@
   .task-status.completed { background: var(--green); }
   .task-status.pending { background: var(--text-muted); }
 
+  /* Delete buttons */
+  .del-btn { background: transparent; border: 1px solid transparent; color: var(--text-muted); cursor: pointer; padding: 2px 6px; border-radius: 4px; font-size: 12px; line-height: 1; opacity: 0.4; transition: all 0.15s; }
+  .del-btn:hover { opacity: 1; color: var(--red); border-color: var(--red); }
+  .action-btn { padding: 6px 14px; border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 6px; cursor: pointer; font-size: 13px; transition: all 0.15s; }
+  .action-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .action-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .action-btn:disabled:hover { border-color: var(--border); color: var(--text); }
+
   /* Empty state */
   .empty { text-align: center; padding: 40px; color: var(--text-muted); }
 
@@ -258,7 +266,7 @@ let state = {
   projectData: null,
   activeTab: 'overview',
   logFilter: 'all',
-  summaryView: 'markdown',
+  summaryView: 'rendered',
   serviceStatus: null,
 };
 
@@ -267,6 +275,27 @@ let state = {
 async function api(path) {
   const res = await fetch(path);
   return res.json();
+}
+
+async function postAction(url, body = {}) {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return res.json();
+}
+
+async function mutateAndRefresh(url, body, confirmMsg) {
+  if (confirmMsg && !confirm(confirmMsg)) return;
+  try {
+    const result = await postAction(url, body);
+    if (result.error) { alert('Error: ' + result.error); return; }
+    if (state.currentProject) await loadProject(state.currentProject);
+    return result;
+  } catch (e) {
+    alert('Request failed: ' + e.message);
+  }
 }
 
 async function loadProjects() {
@@ -392,16 +421,19 @@ function renderLog(el, d) {
     </div>
     <div id="log-entries">
       ${reversed.length === 0 ? '<div class="empty">No log entries</div>' :
-        reversed.map(e => `
+        reversed.map(e => {
+          const origIndex = d.log.indexOf(e);
+          return `
           <div class="log-entry">
             <div class="log-meta">
               ${badgeHtml(e.type)}
               ${tsHtml(e.ts)}
               ${e.agent_type ? `<span style="color:var(--text-muted);font-size:12px">${esc(e.agent_type)}</span>` : ''}
+              <button class="del-btn" data-log-index="${origIndex}" title="Delete entry">&times;</button>
             </div>
             <div class="log-content${(e.content && e.content.length > 200) ? ' truncated' : ''}" data-full="${esc(e.content)}" data-truncated="true">${truncate(e.content)}</div>
           </div>
-        `).join('')}
+        `}).join('')}
     </div>
   `;
 
@@ -409,6 +441,18 @@ function renderLog(el, d) {
     pill.addEventListener('click', () => {
       state.logFilter = pill.dataset.filter;
       renderLog(el, d);
+    });
+  });
+
+  el.querySelectorAll('.del-btn[data-log-index]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = parseInt(btn.dataset.logIndex, 10);
+      const entry = d.log[idx];
+      mutateAndRefresh(
+        `/api/projects/${encodeURIComponent(d.name)}/log/delete`,
+        { index: idx },
+        `Delete this ${entry?.type || 'log'} entry?`
+      );
     });
   });
 
@@ -425,39 +469,109 @@ function renderLog(el, d) {
   });
 }
 
-function renderSummary(el, d) {
-  if (!d.summary && !d.summaryMd) {
-    el.innerHTML = '<div class="empty">No summary available</div>';
-    return;
+function renderSummaryRendered(s) {
+  let html = '';
+  if (s.lastUpdated) {
+    html += `<div style="color:var(--text-muted);font-size:12px;margin-bottom:16px">Last updated: ${esc(new Date(s.lastUpdated).toLocaleString())}</div>`;
   }
+  if (s.projectContext) {
+    html += `<div class="card"><h3>Project Context</h3><div style="line-height:1.6">${esc(s.projectContext)}</div></div>`;
+  }
+  if (s.keyDecisions && s.keyDecisions.length > 0) {
+    html += `<div class="card"><h3>Key Decisions <span style="color:var(--text-muted);font-weight:normal">(${s.keyDecisions.length})</span></h3>`;
+    html += s.keyDecisions.map(d => `
+      <div style="padding:8px 0;border-bottom:1px solid var(--border)">
+        <div style="display:flex;gap:8px;align-items:baseline">
+          <span class="ts">${esc(d.date || '')}</span>
+          <strong style="color:var(--text)">${esc(d.decision)}</strong>
+          ${d.foundational === true ? '<span class="badge badge-note" style="font-size:10px">foundational</span>' : ''}
+        </div>
+        ${d.reason ? `<div style="color:var(--text-muted);margin-top:4px;font-size:13px">${esc(d.reason)}</div>` : ''}
+      </div>
+    `).join('');
+    html += '</div>';
+  }
+  if (s.currentState && s.currentState.length > 0) {
+    html += `<div class="card"><h3>Current State <span style="color:var(--text-muted);font-weight:normal">(${s.currentState.length})</span></h3>`;
+    html += s.currentState.map(c => `
+      <div style="padding:8px 0;border-bottom:1px solid var(--border)">
+        <div><strong>${esc(c.topic)}</strong></div>
+        <div style="color:var(--text-muted);margin-top:2px;font-size:13px">${esc(c.status)}</div>
+        ${c.updatedAt ? `<div style="margin-top:2px">${tsHtml(c.updatedAt)}</div>` : ''}
+      </div>
+    `).join('');
+    html += '</div>';
+  }
+  if (s.recentWork && s.recentWork.length > 0) {
+    html += `<div class="card"><h3>Recent Work</h3>`;
+    html += s.recentWork.map(w => `
+      <div style="padding:6px 0;border-bottom:1px solid var(--border)">
+        <span class="ts">${esc(w.date || '')}</span> ${esc(w.summary || w.description || '')}
+      </div>
+    `).join('');
+    html += '</div>';
+  }
+  return html || '<div class="empty">Summary is empty</div>';
+}
+
+function renderSummary(el, d) {
+  const hasSummary = !!d.summary;
+  const hasLog = d.stats.logEntries > 0;
 
   el.innerHTML = `
-    <div class="toggle-group">
-      <button class="toggle-btn ${state.summaryView === 'markdown' ? 'active' : ''}" data-view="markdown">Rendered</button>
-      <button class="toggle-btn ${state.summaryView === 'json' ? 'active' : ''}" data-view="json">JSON</button>
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+      ${hasSummary ? `
+        <div class="toggle-group" style="margin-bottom:0">
+          <button class="toggle-btn ${state.summaryView === 'rendered' ? 'active' : ''}" data-view="rendered">Rendered</button>
+          <button class="toggle-btn ${state.summaryView === 'json' ? 'active' : ''}" data-view="json">JSON</button>
+        </div>
+      ` : ''}
+      <button class="action-btn" id="force-summarize-btn" ${!hasLog ? 'disabled title="No log entries"' : ''}>Force Summarize</button>
+      <span id="summarize-status" style="font-size:12px;color:var(--text-muted)"></span>
     </div>
-    <div id="summary-content"></div>
+    <div id="summary-content">${hasSummary ? '' : '<div class="empty">No summary available</div>'}</div>
   `;
 
-  el.querySelectorAll('.toggle-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      state.summaryView = btn.dataset.view;
-      renderSummaryContent();
-      el.querySelectorAll('.toggle-btn').forEach(b => b.classList.toggle('active', b.dataset.view === state.summaryView));
-    });
+  const summarizeBtn = el.querySelector('#force-summarize-btn');
+  const statusEl = el.querySelector('#summarize-status');
+  summarizeBtn.addEventListener('click', async () => {
+    if (!confirm('Run summarization now? This will process log entries into the summary.')) return;
+    summarizeBtn.disabled = true;
+    statusEl.textContent = 'Summarizing...';
+    try {
+      const result = await postAction(`/api/projects/${encodeURIComponent(d.name)}/summarize`, { force: true });
+      statusEl.textContent = result.status === 'success'
+        ? `Done — ${result.summarized} entries summarized, ${result.kept} kept`
+        : result.message || result.error || 'Unknown result';
+      if (result.status === 'success') {
+        await loadProject(state.currentProject);
+      }
+    } catch (e) {
+      statusEl.textContent = 'Failed: ' + e.message;
+    } finally {
+      summarizeBtn.disabled = false;
+    }
   });
+
+  if (hasSummary) {
+    el.querySelectorAll('.toggle-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        state.summaryView = btn.dataset.view;
+        renderSummaryContent();
+        el.querySelectorAll('.toggle-btn').forEach(b => b.classList.toggle('active', b.dataset.view === state.summaryView));
+      });
+    });
+    renderSummaryContent();
+  }
 
   function renderSummaryContent() {
     const target = document.getElementById('summary-content');
-    if (state.summaryView === 'markdown' && d.summaryMd) {
-      target.innerHTML = `<div class="summary-md">${basicMarkdown(d.summaryMd)}</div>`;
-    } else if (d.summary) {
-      target.innerHTML = `<pre class="json-view">${syntaxHighlight(JSON.stringify(d.summary, null, 2))}</pre>`;
+    if (state.summaryView === 'rendered') {
+      target.innerHTML = renderSummaryRendered(d.summary);
     } else {
-      target.innerHTML = '<div class="empty">No data for this view</div>';
+      target.innerHTML = `<pre class="json-view">${syntaxHighlight(JSON.stringify(d.summary, null, 2))}</pre>`;
     }
   }
-  renderSummaryContent();
 }
 
 function renderEntities(el, d) {
@@ -480,7 +594,13 @@ function renderEntities(el, d) {
           const item = items[name];
           return `
             <details class="entity-item">
-              <summary>${esc(name)} <span style="color:var(--text-muted);font-size:12px;margin-left:8px">${item.mentions || 0} mentions &middot; last ${relativeTime(item.lastSeen)}</span></summary>
+              <summary>
+                <span style="display:inline-flex;align-items:center;gap:8px;width:100%">
+                  ${esc(name)}
+                  <span style="color:var(--text-muted);font-size:12px">${item.mentions || 0} mentions &middot; last ${relativeTime(item.lastSeen)}</span>
+                  <button class="del-btn" data-entity-cat="${esc(cat)}" data-entity-name="${esc(name)}" title="Delete entity" style="margin-left:auto">&times;</button>
+                </span>
+              </summary>
               <div class="entity-detail">
                 ${(item.contexts || []).map(ctx => `
                   <div class="context-item">
@@ -495,6 +615,18 @@ function renderEntities(el, d) {
       </div>
     `;
   }).join('');
+
+  el.querySelectorAll('.del-btn[data-entity-cat]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      mutateAndRefresh(
+        `/api/projects/${encodeURIComponent(d.name)}/entities/delete`,
+        { category: btn.dataset.entityCat, entity: btn.dataset.entityName },
+        `Delete entity "${btn.dataset.entityName}" from ${btn.dataset.entityCat}?`
+      );
+    });
+  });
 }
 
 function renderRemembered(el, d) {
@@ -504,13 +636,26 @@ function renderRemembered(el, d) {
     return;
   }
 
-  el.innerHTML = items.map(item => `
+  el.innerHTML = items.map((item, i) => `
     <div class="remembered-item">
       ${badgeHtml(item.type || 'note')}
       <div class="remembered-content">${esc(item.content)}</div>
       ${tsHtml(item.ts)}
+      <button class="del-btn" data-remembered-index="${i}" title="Delete">&times;</button>
     </div>
   `).join('');
+
+  el.querySelectorAll('.del-btn[data-remembered-index]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = parseInt(btn.dataset.rememberedIndex, 10);
+      const item = items[idx];
+      mutateAndRefresh(
+        `/api/projects/${encodeURIComponent(d.name)}/remembered/delete`,
+        { index: idx },
+        `Delete remembered item: "${(item?.content || '').slice(0, 80)}"?`
+      );
+    });
+  });
 }
 
 function renderHandoff(el, d) {
