@@ -122,6 +122,36 @@ function extractOpenItems(text) {
 }
 
 /**
+ * Extract the single most important insight from assistant text.
+ * Looks for decision/discovery/failure indicators and returns that sentence.
+ */
+function extractKeyInsight(text) {
+  if (!text || text.length < 30) return null;
+
+  // Patterns that indicate high-value sentences (ordered by signal strength)
+  const indicators = [
+    /\b(?:root cause|the problem was|the issue was|the bug was)\b/i,
+    /\b(?:turns out|it turns out|discovered that)\b/i,
+    /\b(?:chose|decided|going with|switched to)\b.*\b(?:because|since|due to)\b/i,
+    /\b(?:the fix was|fixed by|resolved by|the solution)\b/i,
+    /\b(?:tried .+ (?:but|however|didn't work|failed))\b/i,
+    /\b(?:because|the reason)\b/i,
+  ];
+
+  // Split into sentences (rough but good enough)
+  const sentences = text.split(/(?<=[.!?])\s+/).filter(s => s.length >= 20);
+
+  for (const pattern of indicators) {
+    const match = sentences.find(s => pattern.test(s));
+    if (match) {
+      return match.length > 200 ? match.slice(0, 200) + '...' : match;
+    }
+  }
+
+  return null;
+}
+
+/**
  * Build handoff data from transcript for next session pickup
  */
 function extractHandoff(transcript, responseSummary) {
@@ -137,7 +167,7 @@ function extractHandoff(transcript, responseSummary) {
     }
   }
 
-  // Get open items from last assistant response with text
+  // Get open items and key insight from last assistant response with text
   let lastAssistantText = '';
   for (let i = transcript.length - 1; i >= 0; i--) {
     if (transcript[i].role === 'assistant') {
@@ -153,6 +183,7 @@ function extractHandoff(transcript, responseSummary) {
     ts: new Date().toISOString(),
     workingOn,
     lastDone: responseSummary || null,
+    keyInsight: extractKeyInsight(lastAssistantText),
     openItems: extractOpenItems(lastAssistantText),
   };
 }

@@ -206,6 +206,7 @@ async function incrementalSummarize(existingSummary, newEntries) {
   const recentCount = existingSummary.recentWork?.length || 0;
 
   const prompt = `You are updating a structured memory for project "${projectName}".
+Each entry below represents a work unit: a user request, the actions taken, and the outcome.
 
 <existing_context>
 ${existingContext.join('\n') || '(New project, no existing context)'}
@@ -221,7 +222,7 @@ Analyze the new entries and output a JSON object with updates:
 {
   "projectContext": "Updated project description if new info changes it, or null to keep existing",
   "newKeyDecisions": [
-    { "date": "YYYY-MM-DD", "decision": "Important architectural/design choice", "reason": "Why" }
+    { "date": "YYYY-MM-DD", "decision": "The choice or discovery", "reason": "Why", "foundational": true }
   ],
   "updateCurrentState": [
     { "topic": "Feature name", "status": "New or updated status" }
@@ -235,10 +236,16 @@ Analyze the new entries and output a JSON object with updates:
 
 Rules:
 - Only include fields that have updates (use empty arrays for no changes)
-- Key decisions: ONLY strategic/architectural choices that affect project direction.
+- Key decisions: strategic/architectural choices AND important discoveries/failures.
   Record the "why" not the "how". Good: "Prune old entities to prevent unbounded growth".
   Bad: "Default 30-day retention (entityExtraction.maxAgeDays: 30), configurable by user".
   Implementation details (config keys, defaults, thresholds, parameter names) belong in currentState, not keyDecisions.
+- CAPTURE DEAD ENDS: When entries show something was tried and failed or abandoned,
+  record it as a key decision. Example: "Tried sync file locking — caused deadlocks under concurrent writes, switched to advisory locks".
+  Dead ends prevent repeating mistakes and are high-value memory.
+- Decision permanence: Set "foundational": true for architectural choices that affect the project going forward
+  (e.g. "ESM only", "server-first architecture"). Set "foundational": false for tactical/session-specific
+  decisions (e.g. "use extractive summarization for this batch"). Foundational decisions are protected from pruning.
 - Current state: features implemented, work in progress, known issues, implementation details
 - Recent work: specific tasks completed in this batch of entries
 - Merge similar entries, avoid duplicates
@@ -370,9 +377,19 @@ function applyUpdates(existing, updates) {
     result.currentState = result.currentState.slice(-15);
   }
 
-  // Limit key decisions to 10 (oldest get removed)
+  // Limit key decisions to 10 — prune tactical first, then oldest foundational
   if (result.keyDecisions?.length > 10) {
-    result.keyDecisions = result.keyDecisions.slice(-10);
+    const foundational = result.keyDecisions.filter(d => d.foundational);
+    const tactical = result.keyDecisions.filter(d => !d.foundational);
+    const excess = result.keyDecisions.length - 10;
+
+    if (tactical.length >= excess) {
+      result.keyDecisions = [...foundational, ...tactical.slice(excess)];
+    } else {
+      // Not enough tactical to drop — trim oldest foundational too
+      const foundationalToKeep = 10 - tactical.length;
+      result.keyDecisions = [...foundational.slice(-foundationalToKeep)];
+    }
   }
 
   result.lastUpdated = new Date().toISOString();

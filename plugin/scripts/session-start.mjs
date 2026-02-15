@@ -105,8 +105,7 @@ async function main() {
   let recentEntries = [];
   const reConfig = sections.recentEntries || { enabled: true, maxItems: 4 };
   if (reConfig.enabled !== false && cachedData.logEntries.length > 0) {
-    // Filter out response entries (low signal)
-    let meaningful = cachedData.logEntries.filter(e => e.type !== 'response');
+    let meaningful = cachedData.logEntries;
 
     // Apply semantic deduplication - group related entries and keep highest signal
     meaningful = deduplicateEntries(meaningful, config);
@@ -182,6 +181,7 @@ async function main() {
       console.log('\n## Last Session\n');
       if (handoff.workingOn) console.log(`**Working on:** ${handoff.workingOn}`);
       if (handoff.lastDone) console.log(`**Done:** ${handoff.lastDone}`);
+      if (handoff.keyInsight) console.log(`**Key insight:** ${handoff.keyInsight}`);
       if (handoff.openItems?.length > 0) {
         console.log(`**Open:** ${handoff.openItems.join(', ')}`);
       }

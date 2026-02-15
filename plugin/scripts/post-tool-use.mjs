@@ -4,7 +4,7 @@
  * Captures file modifications (Write, Edit) and commit messages from Bash git commits
  */
 
-import { appendLogEntry, logError } from './utils.mjs';
+import { appendLogEntry, trackEntityOnly, logError } from './utils.mjs';
 
 // Read hook input from stdin
 let input = '';
@@ -56,7 +56,9 @@ function extractCommitMessage(command) {
 }
 
 /**
- * Process Write or Edit tool usage - log the file path
+ * Process Write or Edit tool usage - track entity only (no log entry).
+ * File edits are low-signal in the log (just a path, no context).
+ * Entity index already tracks file activity with frequency/recency/co-occurrence.
  */
 async function processFileEdit(hookData) {
   const { tool_input, cwd } = hookData;
@@ -72,7 +74,7 @@ async function processFileEdit(hookData) {
     content: filePath
   };
 
-  await appendLogEntry(entry, cwd || process.cwd());
+  await trackEntityOnly(entry, cwd || process.cwd());
   return true;
 }
 

@@ -238,6 +238,11 @@ class MnemeServer {
       return this.handleSessionUnregister(req, res);
     }
 
+    // Entity tracking (no log write)
+    if (req.method === 'POST' && url.pathname === '/entity/track') {
+      return this.handleEntityTrack(req, res);
+    }
+
     // Log operations
     if (req.method === 'POST' && url.pathname === '/log/append') {
       return this.handleLogAppend(req, res);
@@ -343,6 +348,27 @@ class MnemeServer {
 
     this.sessions.delete(sessionId);
     this.logger.info('session-unregistered', { sessionId, total: this.sessions.size });
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true }));
+  }
+
+  async handleEntityTrack(req, res) {
+    const body = await this.readBody(req);
+    const { project, entry } = body;
+
+    if (!project || !entry) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        ok: false,
+        error: 'missing-fields',
+        required: ['project', 'entry']
+      }));
+      return;
+    }
+
+    this.entityService.processEntries(project, [entry]);
+    this.invalidateProjectCache(project);
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true }));

@@ -202,6 +202,12 @@ export class MnemeClient {
     return this.get('/health');
   }
 
+  // Entity Operations
+
+  async trackEntity(project, entry) {
+    return this.post('/entity/track', { project, entry });
+  }
+
   // Log Operations
 
   async appendLog(project, entry) {

@@ -836,23 +836,102 @@ export function formatEntriesForSummary(lines) {
 
   if (entries.length === 0) return '';
 
-  // Group by local date
-  const groups = new Map();
-  for (const entry of entries) {
-    const dayKey = new Date(entry.ts).toLocaleDateString(undefined, {
+  // Group temporally-adjacent entries into work units (5-min window)
+  const workUnits = groupIntoWorkUnits(entries, 5 * 60 * 1000);
+
+  // Group work units by day
+  const byDay = new Map();
+  for (const unit of workUnits) {
+    const dayKey = new Date(unit.ts).toLocaleDateString(undefined, {
       weekday: 'short', year: 'numeric', month: 'short', day: 'numeric'
     });
-    if (!groups.has(dayKey)) groups.set(dayKey, []);
-    groups.get(dayKey).push(entry);
+    if (!byDay.has(dayKey)) byDay.set(dayKey, []);
+    byDay.get(dayKey).push(unit);
   }
 
   const sections = [];
-  for (const [day, dayEntries] of groups) {
-    const items = dayEntries.map(e => `- ${formatEntryBrief(e)}`).join('\n');
+  for (const [day, units] of byDay) {
+    const items = units.map(u => `- ${u.text}`).join('\n');
     sections.push(`### ${day}\n${items}`);
   }
 
   return sections.join('\n\n');
+}
+
+/**
+ * Group temporally-adjacent entries into coherent work units.
+ * Returns array of { ts, text } where text is a narrative summary of the group.
+ */
+function groupIntoWorkUnits(entries, windowMs) {
+  if (entries.length === 0) return [];
+
+  const sorted = [...entries].sort((a, b) => new Date(a.ts) - new Date(b.ts));
+  const groups = [];
+  let current = [sorted[0]];
+
+  for (let i = 1; i < sorted.length; i++) {
+    const gap = new Date(sorted[i].ts) - new Date(current[current.length - 1].ts);
+    if (gap <= windowMs) {
+      current.push(sorted[i]);
+    } else {
+      groups.push(current);
+      current = [sorted[i]];
+    }
+  }
+  groups.push(current);
+
+  return groups.map(group => {
+    const ts = group[0].ts;
+
+    // Single entry — use simple format
+    if (group.length === 1) {
+      return { ts, text: formatEntryBrief(group[0]) };
+    }
+
+    // Multiple entries — build narrative: prompt → actions → outcome
+    const prompts = group.filter(e => e.type === 'prompt');
+    const commits = group.filter(e => e.type === 'commit');
+    const responses = group.filter(e => e.type === 'response');
+    const tasks = group.filter(e => e.type === 'task');
+    const agents = group.filter(e => e.type === 'agent');
+    const other = group.filter(e => !['prompt', 'commit', 'response', 'task', 'agent'].includes(e.type));
+
+    const parts = [];
+
+    // Lead with the user request
+    if (prompts.length > 0) {
+      parts.push(`User: "${prompts.map(p => p.content).join('; ')}"`);
+    }
+
+    // Tasks and agents
+    for (const t of tasks) {
+      const brief = t.action ? `Task ${t.action}: ${t.subject}` : `Task: ${t.content}`;
+      parts.push(brief);
+    }
+    for (const a of agents) {
+      parts.push(`Agent: ${a.content}`);
+    }
+
+    // Commits show what shipped
+    if (commits.length > 0) {
+      parts.push(`Commit: "${commits.map(c => c.content).join('; ')}"`);
+    }
+
+    // Response shows the outcome/reasoning
+    if (responses.length > 0) {
+      const responseText = responses.map(r => r.content).join(' ');
+      // Truncate long combined responses
+      const maxLen = 200;
+      parts.push(`Result: ${responseText.length > maxLen ? responseText.slice(0, maxLen) + '...' : responseText}`);
+    }
+
+    // Anything else
+    for (const o of other) {
+      parts.push(formatEntryBrief(o));
+    }
+
+    return { ts, text: parts.join(' → ') };
+  });
 }
 
 /**
@@ -1455,6 +1534,29 @@ export async function appendLogEntry(entry, cwd = process.cwd()) {
   // Fallback: server unavailable — process client-side
   const config = loadConfig();
   appendToPendingLog(entry, cwd);
+  updateEntityIndex(entry, cwd, config);
+  invalidateCache(cwd);
+}
+
+/**
+ * Track entity without writing to log.
+ * Used for file edits — entity index gets the file path, but the log
+ * isn't polluted with low-signal edit entries.
+ */
+export async function trackEntityOnly(entry, cwd = process.cwd()) {
+  const project = getProjectRoot(cwd);
+
+  try {
+    const { getClient } = await import('../client/mneme-client.mjs');
+    const client = await getClient();
+    await client.trackEntity(project, entry);
+    return;
+  } catch (err) {
+    logError(err, 'trackEntityOnly:server');
+  }
+
+  // Fallback: client-side entity extraction only
+  const config = loadConfig();
   updateEntityIndex(entry, cwd, config);
   invalidateCache(cwd);
 }
