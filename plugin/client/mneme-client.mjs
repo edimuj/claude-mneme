@@ -214,6 +214,12 @@ export class MnemeClient {
     return this.post('/log/append', { project, entry });
   }
 
+  // Capture Operations
+
+  async captureStop(project, hookData) {
+    return this.post('/capture/stop', { project, hookData });
+  }
+
   async flushLog(project = null) {
     return this.post('/log/flush', { project });
   }

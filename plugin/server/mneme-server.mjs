@@ -14,6 +14,7 @@ import { homedir } from 'os';
 import { LogService } from './log-service.mjs';
 import { SummarizationService } from './summarization-service.mjs';
 import { EntityService } from './entity-service.mjs';
+import { CaptureService } from './capture-service.mjs';
 
 const MEMORY_BASE = join(homedir(), '.claude-mneme');
 const PID_FILE = join(MEMORY_BASE, '.server.pid');
@@ -103,6 +104,13 @@ class MnemeServer {
         this.summarizationService.trigger(project, false).catch(() => {});
       }
     });
+
+    this.captureService = new CaptureService(
+      this.config,
+      this.logger,
+      (project) => this.getProjectMemoryDir(project),
+      this.logService
+    );
   }
 
   /**
@@ -251,6 +259,11 @@ class MnemeServer {
       return this.handleLogFlush(req, res);
     }
 
+    // Capture operations
+    if (req.method === 'POST' && url.pathname === '/capture/stop') {
+      return this.handleCaptureStop(req, res);
+    }
+
     // Summarization operations
     if (req.method === 'POST' && url.pathname === '/summarize/trigger') {
       return this.handleSummarizeTrigger(req, res);
@@ -304,7 +317,8 @@ class MnemeServer {
           failed: sumStats.summarizationsFailed,
           throttled: sumStats.throttled
         },
-        entity: this.entityService.getStats()
+        entity: this.entityService.getStats(),
+        capture: this.captureService.getStats()
       }
     };
 
@@ -401,6 +415,27 @@ class MnemeServer {
     const result = await this.logService.flush(project);
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(result));
+  }
+
+  async handleCaptureStop(req, res) {
+    const body = await this.readBody(req);
+    const { project, hookData } = body;
+
+    if (!project || !hookData) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        ok: false,
+        error: 'missing-fields',
+        required: ['project', 'hookData']
+      }));
+      return;
+    }
+
+    const result = this.captureService.capture(project, hookData);
+
+    // 202 Accepted — processing happens async
+    res.writeHead(202, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(result));
   }
 
@@ -504,6 +539,7 @@ class MnemeServer {
     }
 
     // Shutdown services (flush pending operations)
+    await this.captureService.shutdown();
     await this.logService.shutdown();
     await this.summarizationService.shutdown();
 
