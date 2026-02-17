@@ -493,6 +493,9 @@ describe('flushPendingLog', () => {
   after(() => {
     process.chdir(origCwd);
     rmSync(tmpDir, { recursive: true, force: true });
+    // Clean up the project dir created in ~/.claude-mneme/projects/
+    const projectDir = join(MEMORY_BASE, 'projects', tmpDir.replace(/^\//, '-').replace(/\//g, '-'));
+    rmSync(projectDir, { recursive: true, force: true });
   });
 
   it('moves pending entries to main log', () => {
