@@ -60,7 +60,7 @@ export async function ensureServer() {
         process.kill(pid, 0); // Signal 0 = check existence
       } catch {
         // Process dead, clean up stale PID file
-        unlinkSync(PID_FILE);
+        try { unlinkSync(PID_FILE); } catch {}
         return ensureServer(); // Retry
       }
 
@@ -70,7 +70,7 @@ export async function ensureServer() {
         try {
           process.kill(pid, 'SIGTERM');
         } catch {}
-        unlinkSync(PID_FILE);
+        try { unlinkSync(PID_FILE); } catch {}
         // Brief pause for the old process to release the port
         await new Promise(r => setTimeout(r, 200));
         return ensureServer(); // Restart with current version
@@ -82,11 +82,11 @@ export async function ensureServer() {
       }
 
       // Server not responsive, clean up and retry
-      unlinkSync(PID_FILE);
+      try { unlinkSync(PID_FILE); } catch {}
       return ensureServer();
     } catch (e) {
       // Invalid PID file, clean up
-      unlinkSync(PID_FILE);
+      try { unlinkSync(PID_FILE); } catch {}
       return ensureServer();
     }
   }

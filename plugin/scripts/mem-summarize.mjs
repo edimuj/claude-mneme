@@ -61,6 +61,8 @@ if (projectDirArg) {
   flushPendingLog(cwd, 0);
 }
 
+const config = loadConfig();
+
 // Check if log exists
 if (!existsSync(paths.log)) {
   console.log(JSON.stringify({
