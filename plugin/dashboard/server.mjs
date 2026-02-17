@@ -110,6 +110,10 @@ function readTextSafe(path, fallback = '') {
 }
 
 function displayName(dirName) {
+  // Home directory: -home-username or -Users-username (no deeper path)
+  const homePath = homedir().replace(/^\//, '-').replace(/\//g, '-');
+  if (dirName === homePath) return '~ (home)';
+
   const parts = dirName.replace(/^-/, '').split('-');
   const projIdx = parts.lastIndexOf('projects');
   if (projIdx >= 0 && projIdx < parts.length - 1) {
