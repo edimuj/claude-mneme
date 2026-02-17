@@ -42,6 +42,12 @@ async function processPrompt(hookData) {
     return;
   }
 
+  // Skip system-injected XML messages (task notifications, system reminders, etc.)
+  if (/^<(task-notification|system-reminder|command-name|context)\b/.test(trimmedPrompt)) {
+    process.exit(0);
+    return;
+  }
+
   // Skip prompts that are just confirmations
   const confirmationPatterns = [
     /^(yes|no|ok|okay|sure|yep|nope|y|n)[\s.,!?]*$/i,
