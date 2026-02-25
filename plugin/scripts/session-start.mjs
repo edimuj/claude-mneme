@@ -94,13 +94,16 @@ async function main() {
   // Context-Aware Retrieval — score memory by relevance to current work
   // ============================================================================
   let retrieval = null;
-  try {
-    const signals = gatherContextSignals(cwd, cachedData, paths);
-    const searchTerms = extractSearchTerms(signals);
-    retrieval = retrieveRelevantMemory(searchTerms, cachedData, config);
-  } catch (e) {
-    logError(e, 'session-start:retrieval');
-    // Falls through to legacy path
+  const retrievalConfig = config.memoryRetrieval || {};
+  if (retrievalConfig.enabled !== false) {
+    try {
+      const signals = gatherContextSignals(cwd, cachedData, paths);
+      const searchTerms = extractSearchTerms(signals);
+      retrieval = retrieveRelevantMemory(searchTerms, cachedData, config);
+    } catch (e) {
+      logError(e, 'session-start:retrieval');
+      // Falls through to legacy path
+    }
   }
 
   // ============================================================================
@@ -248,6 +251,10 @@ async function main() {
         relative = `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
       }
       temporalLine += ` | Last session: ${lastFormatted} (${relative})`;
+    }
+    if (retrieval) {
+      const pct = Math.round(retrieval.signalStrength * 100);
+      temporalLine += ` | Context: ${pct}% signal`;
     }
     console.log(`\n${temporalLine}`);
 

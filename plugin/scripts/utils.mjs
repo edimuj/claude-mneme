@@ -457,6 +457,20 @@ export function loadConfig() {
       trackDuration: true               // Track how long tasks took
     },
 
+    // Context-aware memory retrieval configuration
+    memoryRetrieval: {
+      enabled: true,                    // Enable/disable retrieval (false = always use legacy dump)
+      minSignalStrength: 0.2,           // Minimum signal strength to activate (0-1, fraction of sources)
+      relevanceThreshold: 0.15,         // Minimum score for an item to be included (0-1)
+      alwaysIncludeFoundational: true,  // Always include foundational decisions regardless of score
+      budgets: {                        // Max items per category when retrieval is active
+        decisions: 5,
+        state: 5,
+        work: 3,
+        entries: 6,
+      },
+    },
+
     // File caching configuration
     caching: {
       enabled: true,                    // Enable/disable file caching
