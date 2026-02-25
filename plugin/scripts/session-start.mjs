@@ -14,6 +14,59 @@ import { execFileSync } from 'child_process';
 import { join } from 'path';
 import { ensureMemoryDirs, loadConfig, getProjectName, escapeAttr, formatEntry, renderSummaryToMarkdown, flushPendingLog, scoreEntriesByRelevance, getRelevantEntities, deduplicateEntries, readCachedData, logError, getErrorsSince } from './utils.mjs';
 import { pullIfEnabled, startHeartbeat } from './sync.mjs';
+import { gatherContextSignals, extractSearchTerms, retrieveRelevantMemory } from '../lib/memory-retriever.mjs';
+
+/**
+ * Render summary sections from retrieval results (scored/filtered items).
+ * Same output format as renderSummaryToMarkdown but with fewer, more relevant items.
+ */
+function renderRetrievalSummary(retrieval, summary, projectName) {
+  const highLines = ['# Claude Memory Summary'];
+
+  if (summary.lastUpdated) {
+    const ts = new Date(summary.lastUpdated).toISOString().replace('T', ' ').split('.')[0] + ' UTC';
+    highLines.push(`\n*Last updated: ${ts}*`);
+  }
+
+  // Project Context — always include (not scored, it's a single paragraph)
+  if (retrieval.projectContext) {
+    highLines.push('\n## Project Context');
+    highLines.push(retrieval.projectContext);
+  }
+
+  // Key Decisions — relevance-filtered
+  if (retrieval.decisions?.length > 0) {
+    highLines.push('\n## Key Decisions');
+    for (const d of retrieval.decisions) {
+      const reason = d.reason ? ` — ${d.reason}` : '';
+      highLines.push(`- **${d.decision}**${reason}`);
+    }
+  }
+
+  // Current State — relevance-filtered
+  if (retrieval.state?.length > 0) {
+    highLines.push('\n## Current State');
+    for (const s of retrieval.state) {
+      highLines.push(`- **${s.topic}**: ${s.status}`);
+    }
+  }
+
+  // Recent Work — relevance-filtered (medium priority)
+  const mediumLines = [];
+  if (retrieval.work?.length > 0) {
+    mediumLines.push('\n## Recent Work');
+    for (const w of retrieval.work) {
+      const date = w.date ? `[${w.date}] ` : '';
+      mediumLines.push(`- ${date}${w.summary}`);
+    }
+  }
+
+  return {
+    high: highLines.join('\n'),
+    medium: mediumLines.join('\n'),
+    full: highLines.concat(mediumLines).join('\n'),
+  };
+}
 
 async function main() {
   const cwd = process.cwd();
@@ -38,6 +91,19 @@ async function main() {
   const cachedData = readCachedData(cwd, config);
 
   // ============================================================================
+  // Context-Aware Retrieval — score memory by relevance to current work
+  // ============================================================================
+  let retrieval = null;
+  try {
+    const signals = gatherContextSignals(cwd, cachedData, paths);
+    const searchTerms = extractSearchTerms(signals);
+    retrieval = retrieveRelevantMemory(searchTerms, cachedData, config);
+  } catch (e) {
+    logError(e, 'session-start:retrieval');
+    // Falls through to legacy path
+  }
+
+  // ============================================================================
   // HIGH PRIORITY - Always inject
   // ============================================================================
 
@@ -45,14 +111,20 @@ async function main() {
   let summaryParts = { high: '', medium: '', full: '' };
 
   if (cachedData.summary) {
-    summaryParts = renderSummaryToMarkdown(cachedData.summary, projectName, ciConfig);
+    if (retrieval) {
+      // Retrieval-aware: render only relevant items from scored results
+      summaryParts = renderRetrievalSummary(retrieval, cachedData.summary, projectName);
+    } else {
+      // Fallback: dump everything (existing behavior)
+      summaryParts = renderSummaryToMarkdown(cachedData.summary, projectName, ciConfig);
+    }
   }
 
   // Read persistent remembered items (HIGH priority)
   let remembered = [];
   const remConfig = sections.remembered || { enabled: true };
   if (remConfig.enabled !== false) {
-    remembered = cachedData.remembered || [];
+    remembered = retrieval ? (retrieval.remembered || []) : (cachedData.remembered || []);
   }
 
   // ============================================================================
@@ -104,7 +176,10 @@ async function main() {
   // Process log entries by relevance (LOW priority - reduced count)
   let recentEntries = [];
   const reConfig = sections.recentEntries || { enabled: true, maxItems: 4 };
-  if (reConfig.enabled !== false && cachedData.logEntries.length > 0) {
+  if (retrieval) {
+    // Retrieval-aware: entries already scored and filtered
+    recentEntries = (retrieval.entries || []).map(formatEntry);
+  } else if (reConfig.enabled !== false && cachedData.logEntries.length > 0) {
     let meaningful = cachedData.logEntries;
 
     // Apply semantic deduplication - group related entries and keep highest signal
