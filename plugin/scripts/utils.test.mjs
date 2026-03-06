@@ -44,7 +44,10 @@ import {
   extractPackageNames,
   isValidPackageName,
   stripMarkdown,
+  formatDecisionLine,
 } from './utils.mjs';
+
+import { truncateContext } from '../lib/entities.mjs';
 
 // ============================================================================
 // escapeAttr
@@ -1586,5 +1589,115 @@ describe('ensureMemoryDirs (full-path naming + migration)', () => {
       if (existsSync(oldDir)) rmSync(oldDir, { recursive: true, force: true });
       rmSync(tmp, { recursive: true, force: true });
     }
+  });
+});
+
+// ============================================================================
+// truncateContext — smart boundary truncation
+// ============================================================================
+
+describe('truncateContext', () => {
+  it('returns short text unchanged', () => {
+    assert.equal(truncateContext('hello world', 80), 'hello world');
+  });
+
+  it('truncates at sentence boundary', () => {
+    const text = 'First sentence. Second sentence that is much longer and goes on and on forever.';
+    const result = truncateContext(text, 40);
+    assert.equal(result, 'First sentence. Second sentence that...');
+  });
+
+  it('truncates at clause boundary when no sentence break', () => {
+    const text = 'The notify script points to ntfy.sh, which is the public cloud notification service used by all watchdogs';
+    const result = truncateContext(text, 60);
+    assert.ok(result.endsWith('...'), `Should end with ellipsis: "${result}"`);
+    assert.ok(!result.includes('watc'), `Should not cut mid-word: "${result}"`);
+  });
+
+  it('truncates at word boundary as fallback', () => {
+    const text = 'one two three four five six seven eight nine ten eleven twelve thirteen';
+    const result = truncateContext(text, 30);
+    assert.ok(result.endsWith('...'), `Should end with ellipsis: "${result}"`);
+    assert.ok(result.length <= 30, `Should not exceed maxLen: ${result.length}`);
+  });
+
+  it('handles empty and null input', () => {
+    assert.equal(truncateContext('', 80), '');
+    assert.equal(truncateContext(null, 80), '');
+    assert.equal(truncateContext(undefined, 80), '');
+  });
+
+  it('collapses whitespace', () => {
+    assert.equal(truncateContext('hello   world\n  foo', 80), 'hello world foo');
+  });
+});
+
+// ============================================================================
+// formatDecisionLine — length-capped decision rendering
+// ============================================================================
+
+describe('formatDecisionLine', () => {
+  it('renders short decision + reason normally', () => {
+    const d = { decision: 'Use ESM only', reason: 'Simpler module system' };
+    assert.equal(formatDecisionLine(d), '- **Use ESM only** — Simpler module system');
+  });
+
+  it('renders decision without reason', () => {
+    const d = { decision: 'Use ESM only' };
+    assert.equal(formatDecisionLine(d), '- **Use ESM only**');
+  });
+
+  it('caps long reason at ~160 chars total', () => {
+    const d = {
+      decision: 'Server-first architecture',
+      reason: 'This was decided because the client-side fallback logic was creating maintenance burden, race conditions with file stability, and duplicating work that the centralized service handles better with batching and dedup'
+    };
+    const line = formatDecisionLine(d);
+    assert.ok(line.length <= 165, `Line too long (${line.length}): "${line}"`);
+    assert.ok(line.startsWith('- **Server-first architecture**'), 'Should keep full decision');
+  });
+
+  it('drops reason entirely if decision itself is near limit', () => {
+    const d = {
+      decision: 'A'.repeat(140),
+      reason: 'Some reason that cannot possibly fit'
+    };
+    const line = formatDecisionLine(d);
+    assert.ok(!line.includes(' — '), 'Should not include reason separator');
+  });
+});
+
+// ============================================================================
+// deduplicateEntries — content similarity dedup (cross-window)
+// ============================================================================
+
+describe('deduplicateEntries content similarity', () => {
+  const baseTs = '2025-02-04T10:00:00Z';
+  function ts(minutesOffset) {
+    return new Date(new Date(baseTs).getTime() + minutesOffset * 60000).toISOString();
+  }
+
+  it('collapses entries about the same topic across different time windows', () => {
+    const entries = [
+      { ts: ts(0), type: 'prompt', content: 'Can we configure the cron table for notifications?' },
+      { ts: ts(10), type: 'response', content: 'The cron table is configured for notifications now.' },
+      { ts: ts(20), type: 'prompt', content: 'The cron table for notifications looks great.' },
+      { ts: ts(30), type: 'response', content: 'Yes the cron notification table is working well.' },
+      { ts: ts(40), type: 'commit', content: 'feat: add cron table for notifications' },
+    ];
+    const result = deduplicateEntries(entries);
+    assert.ok(result.length <= 2, `Should collapse similar entries, got ${result.length}: ${result.map(r => r.content).join(' | ')}`);
+    // Commit should survive (highest priority)
+    assert.ok(result.some(r => r.type === 'commit'), 'Commit should survive dedup');
+  });
+
+  it('preserves entries about different topics', () => {
+    const entries = [
+      { ts: ts(0), type: 'prompt', content: 'Fix the authentication bug in login flow' },
+      { ts: ts(10), type: 'prompt', content: 'Add dark mode to the dashboard CSS' },
+      { ts: ts(20), type: 'commit', content: 'feat: implement new database migration system' },
+    ];
+    const result = deduplicateEntries(entries);
+    assert.equal(result.length, 3, 'All entries about different topics should survive');
   });
 });

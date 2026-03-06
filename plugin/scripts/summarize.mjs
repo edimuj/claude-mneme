@@ -222,7 +222,7 @@ Analyze the new entries and output a JSON object with updates:
 {
   "projectContext": "Updated project description if new info changes it, or null to keep existing",
   "newKeyDecisions": [
-    { "date": "YYYY-MM-DD", "decision": "The choice or discovery", "reason": "Why", "foundational": true }
+    { "date": "YYYY-MM-DD", "decision": "Max ~80 chars: the choice or discovery", "reason": "Max ~80 chars: why", "foundational": true }
   ],
   "updateCurrentState": [
     { "topic": "Feature name", "status": "New or updated status" }
@@ -237,6 +237,7 @@ Analyze the new entries and output a JSON object with updates:
 Rules:
 - Only include fields that have updates (use empty arrays for no changes)
 - Key decisions: strategic/architectural choices AND important discoveries/failures.
+  Hard cap: "decision" ≤80 chars, "reason" ≤80 chars. One sentence each, no exceptions.
   Record the "why" not the "how". Good: "Prune old entities to prevent unbounded growth".
   Bad: "Default 30-day retention (entityExtraction.maxAgeDays: 30), configurable by user".
   Implementation details (config keys, defaults, thresholds, parameter names) belong in currentState, not keyDecisions.

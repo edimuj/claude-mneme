@@ -12,7 +12,7 @@
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { execFileSync } from 'child_process';
 import { join } from 'path';
-import { ensureMemoryDirs, loadConfig, getProjectName, escapeAttr, formatEntry, renderSummaryToMarkdown, flushPendingLog, scoreEntriesByRelevance, getRelevantEntities, deduplicateEntries, readCachedData, logError, getErrorsSince } from './utils.mjs';
+import { ensureMemoryDirs, loadConfig, getProjectName, escapeAttr, formatEntry, formatDecisionLine, renderSummaryToMarkdown, flushPendingLog, scoreEntriesByRelevance, getRelevantEntities, deduplicateEntries, readCachedData, logError, getErrorsSince } from './utils.mjs';
 import { pullIfEnabled, startHeartbeat } from './sync.mjs';
 import { gatherContextSignals, extractSearchTerms, retrieveRelevantMemory } from '../lib/memory-retriever.mjs';
 
@@ -38,8 +38,7 @@ function renderRetrievalSummary(retrieval, summary, projectName) {
   if (retrieval.decisions?.length > 0) {
     highLines.push('\n## Key Decisions');
     for (const d of retrieval.decisions) {
-      const reason = d.reason ? ` — ${d.reason}` : '';
-      highLines.push(`- **${d.decision}**${reason}`);
+      highLines.push(formatDecisionLine(d));
     }
   }
 

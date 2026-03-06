@@ -976,6 +976,24 @@ export function emptyStructuredSummary() {
  * @param {object} options - Rendering options from contextInjection config
  * @returns {object} { high: string, medium: string } - Separated by priority
  */
+export const MAX_DECISION_LINE = 160;
+
+export function formatDecisionLine(d) {
+  const decision = d.decision || '';
+  if (!d.reason) return `- **${decision}**`;
+  const full = `- **${decision}** — ${d.reason}`;
+  if (full.length <= MAX_DECISION_LINE) return full;
+  // Truncate reason at sentence/clause boundary
+  const budget = MAX_DECISION_LINE - decision.length - 8; // 8 = `- **` + `** — `
+  if (budget < 20) return `- **${decision}**`; // reason doesn't fit — drop it
+  const reason = d.reason.slice(0, budget);
+  const sentBreak = Math.max(reason.lastIndexOf('. '), reason.lastIndexOf('; '));
+  if (sentBreak > budget * 0.4) return `- **${decision}** — ${reason.slice(0, sentBreak + 1).trim()}`;
+  const wordBreak = reason.lastIndexOf(' ');
+  if (wordBreak > budget * 0.4) return `- **${decision}** — ${reason.slice(0, wordBreak).trim()}...`;
+  return `- **${decision}**`;
+}
+
 export function renderSummaryToMarkdown(summary, projectName, options = {}) {
   const sections = options.sections || {};
   const highLines = ['# Claude Memory Summary'];
@@ -1000,8 +1018,7 @@ export function renderSummaryToMarkdown(summary, projectName, options = {}) {
     const decisions = summary.keyDecisions.slice(-maxItems); // Keep most recent
     highLines.push('\n## Key Decisions');
     for (const d of decisions) {
-      const reason = d.reason ? ` — ${d.reason}` : '';
-      highLines.push(`- **${d.decision}**${reason}`);
+      highLines.push(formatDecisionLine(d));
     }
   }
 
@@ -1218,6 +1235,19 @@ function findCoOccurrenceClusters(allEntities) {
  * @param {Array} recentFiles - Recently accessed files (optional)
  * @returns {object} Relevant entity data
  */
+/**
+ * Drop recentContext if it's a broken fragment (no complete clause).
+ * Better to show no context than a truncated mid-sentence mess.
+ */
+function sanitizeRecentContext(text) {
+  if (!text) return undefined;
+  // Too short to be meaningful
+  if (text.length < 12) return undefined;
+  // Ends with '...' and has no sentence-ending punctuation before it — likely a broken fragment
+  if (text.endsWith('...') && !/[.!?]/.test(text.slice(0, -3))) return undefined;
+  return text;
+}
+
 export function getRelevantEntities(cwd = process.cwd(), recentFiles = []) {
   const index = loadEntityIndex(cwd);
   const result = { files: [], functions: [], errors: [], packages: [], clusters: [] };
@@ -1263,7 +1293,7 @@ export function getRelevantEntities(cwd = process.cwd(), recentFiles = []) {
     return {
       name: s.name, category: s.category,
       mentions: s.data.mentions, lastSeen: s.data.lastSeen,
-      recentContext: s.data.contexts[s.data.contexts.length - 1]?.summary,
+      recentContext: sanitizeRecentContext(s.data.contexts[s.data.contexts.length - 1]?.summary),
       contextTypes: [...new Set(s.data.contexts.map(c => c.type).filter(Boolean))],
       velocity
     };
@@ -1442,7 +1472,72 @@ export function deduplicateEntries(entries, config = {}) {
     return winner;
   });
 
-  return deduplicated;
+  // Phase 2: Content-similarity dedup across time windows
+  // Collapses entries about the same topic even if they're in different time groups
+  return deduplicateByContent(deduplicated, typePriority);
+}
+
+/**
+ * Extract significant terms from entry content for similarity comparison.
+ * Strips stop words and short tokens, returns lowercased set.
+ */
+function extractContentTerms(entry) {
+  const text = (entry.content || entry.subject || '').toLowerCase();
+  const stops = new Set(['the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been',
+    'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should',
+    'can', 'may', 'might', 'shall', 'to', 'of', 'in', 'for', 'on', 'with', 'at',
+    'by', 'from', 'as', 'into', 'about', 'that', 'this', 'it', 'its', 'not', 'but',
+    'and', 'or', 'if', 'then', 'than', 'so', 'no', 'yes', 'just', 'also', 'like',
+    'what', 'how', 'when', 'where', 'which', 'who', 'we', 'you', 'i', 'my', 'me',
+    'our', 'your', 'they', 'them', 'their', 'he', 'she', 'his', 'her', 'all', 'some']);
+  const words = text.replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(w => w.length > 2 && !stops.has(w));
+  return new Set(words);
+}
+
+/**
+ * Jaccard similarity between two term sets.
+ */
+function termSimilarity(setA, setB) {
+  if (setA.size === 0 || setB.size === 0) return 0;
+  let intersection = 0;
+  for (const t of setA) { if (setB.has(t)) intersection++; }
+  return intersection / (setA.size + setB.size - intersection);
+}
+
+/**
+ * Collapse entries with high content overlap, keeping the highest-signal version.
+ */
+function deduplicateByContent(entries, typePriority) {
+  if (entries.length <= 1) return entries;
+
+  const SIMILARITY_THRESHOLD = 0.4;
+  const termSets = entries.map(extractContentTerms);
+  const absorbed = new Set();
+  const result = [];
+
+  for (let i = 0; i < entries.length; i++) {
+    if (absorbed.has(i)) continue;
+    let winner = entries[i];
+    let winnerPriority = typePriority[winner.type] || 0;
+
+    // Look ahead for similar entries
+    for (let j = i + 1; j < entries.length; j++) {
+      if (absorbed.has(j)) continue;
+      if (termSimilarity(termSets[i], termSets[j]) >= SIMILARITY_THRESHOLD) {
+        const challenger = entries[j];
+        const challengerPriority = typePriority[challenger.type] || 0;
+        // Keep the higher-priority or more recent entry
+        if (challengerPriority > winnerPriority ||
+            (challengerPriority === winnerPriority && new Date(challenger.ts) > new Date(winner.ts))) {
+          winner = challenger;
+          winnerPriority = challengerPriority;
+        }
+        absorbed.add(j);
+      }
+    }
+    result.push(winner);
+  }
+  return result;
 }
 
 /**

@@ -286,6 +286,23 @@ export function truncateContext(text, maxLen) {
   if (!text) return '';
   const cleaned = text.replace(/\s+/g, ' ').trim();
   if (cleaned.length <= maxLen) return cleaned;
+
+  // Find the last clean break point before the limit
+  const slice = cleaned.slice(0, maxLen - 3);
+  const sentenceBreak = Math.max(slice.lastIndexOf('. '), slice.lastIndexOf('? '), slice.lastIndexOf('! '));
+  const clauseBreak = Math.max(slice.lastIndexOf(', '), slice.lastIndexOf(' — '), slice.lastIndexOf('; '));
+  const wordBreak = slice.lastIndexOf(' ');
+
+  // Use the best break that preserves at least 40% of the content
+  const minLen = maxLen * 0.4;
+  let breakAt = -1;
+  if (sentenceBreak > minLen) breakAt = sentenceBreak + 1;
+  else if (clauseBreak > minLen) breakAt = clauseBreak;
+  else if (wordBreak > minLen) breakAt = wordBreak;
+
+  if (breakAt > 0) {
+    return cleaned.slice(0, breakAt).trim() + '...';
+  }
   return cleaned.slice(0, maxLen - 3) + '...';
 }
 
