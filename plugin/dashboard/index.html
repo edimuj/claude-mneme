@@ -57,8 +57,9 @@
   .log-entry:last-child { border-bottom: none; }
   .log-meta { display: flex; gap: 10px; align-items: center; margin-bottom: 4px; }
   .log-content { color: var(--text-muted); line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
-  .log-content.truncated { cursor: pointer; }
-  .log-content.truncated:hover { color: var(--text); }
+  .log-content.expandable { cursor: pointer; }
+  .log-content.expandable:hover { color: var(--text); }
+  .log-content.expanded { color: var(--text); }
 
   /* Badges */
   .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 500; }
@@ -415,6 +416,10 @@ function renderLog(el, d) {
   const filtered = state.logFilter === 'all' ? d.log : d.log.filter(e => e.type === state.logFilter);
   const reversed = [...filtered].reverse();
 
+  // Store full content in a Map to avoid HTML attribute escaping issues
+  const fullContent = new Map();
+  reversed.forEach(e => fullContent.set(d.log.indexOf(e), e.content));
+
   el.innerHTML = `
     <div class="filters">
       ${types.map(t => `<span class="filter-pill ${t === state.logFilter ? 'active' : ''}" data-filter="${t}">${t} ${t !== 'all' ? `(${d.log.filter(e => e.type === t).length})` : `(${d.log.length})`}</span>`).join('')}
@@ -423,6 +428,7 @@ function renderLog(el, d) {
       ${reversed.length === 0 ? '<div class="empty">No log entries</div>' :
         reversed.map(e => {
           const origIndex = d.log.indexOf(e);
+          const isExpandable = e.content && e.content.length > 200;
           return `
           <div class="log-entry">
             <div class="log-meta">
@@ -431,7 +437,7 @@ function renderLog(el, d) {
               ${e.agent_type ? `<span style="color:var(--text-muted);font-size:12px">${esc(e.agent_type)}</span>` : ''}
               <button class="del-btn" data-log-index="${origIndex}" title="Delete entry">&times;</button>
             </div>
-            <div class="log-content${(e.content && e.content.length > 200) ? ' truncated' : ''}" data-full="${esc(e.content)}" data-truncated="true">${truncate(e.content)}</div>
+            <div class="log-content${isExpandable ? ' expandable' : ''}" data-log-index="${origIndex}">${truncate(e.content)}</div>
           </div>
         `}).join('')}
     </div>
@@ -456,17 +462,26 @@ function renderLog(el, d) {
     });
   });
 
-  el.querySelectorAll('.log-content.truncated').forEach(div => {
-    div.addEventListener('click', () => {
-      if (div.dataset.truncated === 'true') {
-        div.innerHTML = esc(div.dataset.full);
-        div.dataset.truncated = 'false';
+  // Event delegation for expand/collapse — avoids lost handlers and attribute escaping bugs
+  const logEntries = el.querySelector('#log-entries');
+  if (logEntries) {
+    logEntries.addEventListener('click', (e) => {
+      const div = e.target.closest('.log-content.expandable');
+      if (!div || e.target.closest('.del-btn')) return;
+      const idx = parseInt(div.dataset.logIndex, 10);
+      const full = fullContent.get(idx);
+      if (!full) return;
+
+      const isExpanded = div.classList.contains('expanded');
+      if (isExpanded) {
+        div.textContent = full.slice(0, 200) + '...';
+        div.classList.remove('expanded');
       } else {
-        div.innerHTML = truncate(div.dataset.full);
-        div.dataset.truncated = 'true';
+        div.textContent = full;
+        div.classList.add('expanded');
       }
     });
-  });
+  }
 }
 
 function renderSummaryRendered(s) {
