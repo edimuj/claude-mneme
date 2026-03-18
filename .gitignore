@@ -29,3 +29,4 @@ CLAUDE.md
 .claude-rig
 # Nightshift plan artifacts (keep out of version control)
 .nightshift-plan
+share/
