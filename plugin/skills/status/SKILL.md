@@ -1,5 +1,6 @@
 ---
-description: Check plugin health and diagnose issues
+name: status
+description: Check plugin health and diagnose issues. Use when the user asks about mneme health, memory status, plugin errors, wants to troubleshoot memory issues, or sees error warnings at session start.
 ---
 
 ## Your task
@@ -43,7 +44,7 @@ The script returns JSON with:
 Present the results in a clear, actionable format:
 
 ### If healthy:
-> **Plugin Status: Healthy** ✓
+> **Plugin Status: Healthy**
 >
 > All checks passed. Memory is working correctly.
 >
@@ -52,7 +53,7 @@ Present the results in a clear, actionable format:
 > - Remembered: Z items
 
 ### If degraded:
-> **Plugin Status: Degraded** ⚠️
+> **Plugin Status: Degraded**
 >
 > The plugin is working but has warnings:
 > - [list warnings]
@@ -61,7 +62,7 @@ Present the results in a clear, actionable format:
 > - [list if any]
 
 ### If unhealthy:
-> **Plugin Status: Unhealthy** ✗
+> **Plugin Status: Unhealthy**
 >
 > Critical issues found:
 > - [list errors with fixes]

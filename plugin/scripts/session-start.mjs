@@ -9,7 +9,7 @@
  * - LOW priority: Recent log entries (limited to last few)
  */
 
-import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from 'fs';
 import { execFileSync } from 'child_process';
 import { join } from 'path';
 import { ensureMemoryDirs, loadConfig, getProjectName, escapeAttr, formatEntry, formatDecisionLine, renderSummaryToMarkdown, flushPendingLog, scoreEntriesByRelevance, getRelevantEntities, deduplicateEntries, readCachedData, logError, getErrorsSince } from './utils.mjs';
@@ -212,10 +212,30 @@ async function main() {
   // Output - Hierarchical injection
   // ============================================================================
 
-  // Read handoff from previous session (if recent)
+  // Read manual briefing (from /handoff command) — takes precedence over auto-handoff
+  let briefing = null;
+  if (existsSync(paths.briefing)) {
+    try {
+      const data = JSON.parse(readFileSync(paths.briefing, 'utf-8'));
+      const maxAgeMs = 7 * 24 * 60 * 60 * 1000; // 7 day TTL
+      if (data.ts && (Date.now() - new Date(data.ts).getTime()) < maxAgeMs) {
+        briefing = data;
+      }
+      // Archive after reading (consumed)
+      try {
+        mkdirSync(paths.briefingArchive, { recursive: true });
+        const archiveName = new Date(data.ts || Date.now()).toISOString().replace(/[:.]/g, '-') + '.json';
+        renameSync(paths.briefing, join(paths.briefingArchive, archiveName));
+      } catch (e) {
+        logError(e, 'session-start:briefing-archive');
+      }
+    } catch {}
+  }
+
+  // Read auto-handoff from previous session (if recent and no manual briefing)
   let handoff = null;
   const lsConfig = sections.lastSession || { enabled: true };
-  if (lsConfig.enabled !== false && existsSync(paths.handoff)) {
+  if (!briefing && lsConfig.enabled !== false && existsSync(paths.handoff)) {
     try {
       const data = JSON.parse(readFileSync(paths.handoff, 'utf-8'));
       const maxAgeMs = 48 * 60 * 60 * 1000;
@@ -227,7 +247,7 @@ async function main() {
 
   const hasContent = summaryParts.high || summaryParts.medium ||
                      remembered.length > 0 || gitChanges ||
-                     recentEntries.length > 0 || relevantEntities || handoff;
+                     recentEntries.length > 0 || relevantEntities || briefing || handoff;
 
   if (hasContent) {
     console.log(`<claude-mneme project="${escapeAttr(projectName)}">`);
@@ -257,8 +277,30 @@ async function main() {
     }
     console.log(`\n${temporalLine}`);
 
-    // HANDOFF from previous session (highest immediate value)
-    if (handoff) {
+    // BRIEFING from /handoff command (highest immediate value, replaces auto-handoff)
+    if (briefing) {
+      console.log('\n## Session Briefing\n');
+      console.log(briefing.summary);
+      if (briefing.keyDecisions?.length > 0) {
+        console.log('\n**Key decisions:**');
+        for (const d of briefing.keyDecisions) console.log(`- ${d}`);
+      }
+      if (briefing.currentState) {
+        console.log(`\n**Current state:** ${briefing.currentState}`);
+      }
+      if (briefing.nextSteps?.length > 0) {
+        console.log('\n**Next steps:**');
+        for (const s of briefing.nextSteps) console.log(`- ${s}`);
+      }
+      if (briefing.blockers?.length > 0) {
+        console.log('\n**Blockers:**');
+        for (const b of briefing.blockers) console.log(`- ${b}`);
+      }
+      if (briefing.context) {
+        console.log(`\n**Context:** ${briefing.context}`);
+      }
+    } else if (handoff) {
+      // Auto-extracted handoff (fallback when no manual briefing)
       console.log('\n## Last Session\n');
       if (handoff.workingOn) console.log(`**Working on:** ${handoff.workingOn}`);
       if (handoff.lastDone) console.log(`**Done:** ${handoff.lastDone}`);

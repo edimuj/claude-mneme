@@ -136,17 +136,35 @@ export function gatherContextSignals(cwd, cachedData, paths) {
     }).trim();
   } catch { /* not a git repo */ }
 
-  // Handoff
+  // Briefing (manual /handoff) takes precedence over auto-handoff for signals
   let handoff = null;
-  const handoffPath = paths?.handoff;
-  if (handoffPath && existsSync(handoffPath)) {
+  const briefingPath = paths?.briefing;
+  if (briefingPath && existsSync(briefingPath)) {
     try {
-      const data = JSON.parse(readFileSync(handoffPath, 'utf-8'));
-      const maxAgeMs = 48 * 60 * 60 * 1000;
+      const data = JSON.parse(readFileSync(briefingPath, 'utf-8'));
+      const maxAgeMs = 7 * 24 * 60 * 60 * 1000;
       if (data.ts && (Date.now() - new Date(data.ts).getTime()) < maxAgeMs) {
-        handoff = data;
+        // Map briefing fields to handoff shape for signal extraction
+        handoff = {
+          workingOn: data.summary,
+          keyInsight: data.currentState || null,
+          lastDone: null,
+          openItems: data.nextSteps || [],
+        };
       }
-    } catch { /* corrupt handoff — skip */ }
+    } catch { /* corrupt briefing — skip */ }
+  }
+  if (!handoff) {
+    const handoffPath = paths?.handoff;
+    if (handoffPath && existsSync(handoffPath)) {
+      try {
+        const data = JSON.parse(readFileSync(handoffPath, 'utf-8'));
+        const maxAgeMs = 48 * 60 * 60 * 1000;
+        if (data.ts && (Date.now() - new Date(data.ts).getTime()) < maxAgeMs) {
+          handoff = data;
+        }
+      } catch { /* corrupt handoff — skip */ }
+    }
   }
 
   // Hot entity names (top 5 by recency * frequency from entity index)

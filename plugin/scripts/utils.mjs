@@ -111,6 +111,8 @@ export function ensureMemoryDirs(cwd = process.cwd()) {
     cache: join(projectDir, '.cache.json'),
     lastSession: join(projectDir, '.last-session'),
     handoff: join(projectDir, 'handoff.json'),
+    briefing: join(projectDir, 'briefing.json'),
+    briefingArchive: join(projectDir, 'briefing-archive'),
     config: CONFIG_FILE
   };
 }

@@ -1,5 +1,6 @@
 ---
-description: Force immediate memory summarization
+name: summarize
+description: Force immediate memory summarization. Use when the user wants to compress the activity log, trigger summarization manually, or says "summarize memory", "compress the log", or "update the summary".
 ---
 
 ## Your task

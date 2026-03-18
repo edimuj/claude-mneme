@@ -1,6 +1,6 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
@@ -68,6 +68,11 @@ function setupProject(opts = {}) {
   // Handoff
   if (opts.handoff) {
     writeFileSync(join(dataDir, 'handoff.json'), JSON.stringify(opts.handoff, null, 2));
+  }
+
+  // Briefing (manual /handoff)
+  if (opts.briefing) {
+    writeFileSync(join(dataDir, 'briefing.json'), JSON.stringify(opts.briefing, null, 2));
   }
 
   // Last session timestamp
@@ -323,5 +328,107 @@ describe('session-start integration: empty project', () => {
     assert.ok(!output.includes('## Current State'), 'should not have state');
     assert.ok(!output.includes('## Recent Activity'), 'should not have entries');
     assert.ok(!output.includes('## Last Session'), 'should not have handoff');
+  });
+});
+
+// ============================================================================
+// Integration: Briefing (/handoff command)
+// ============================================================================
+describe('session-start integration: briefing', () => {
+  let env;
+  let output;
+  const now = new Date();
+
+  before(() => {
+    env = setupProject({
+      briefing: {
+        ts: now.toISOString(),
+        summary: 'Implemented JWT auth middleware with refresh tokens.',
+        keyDecisions: ['JWT over session tokens for statelessness'],
+        currentState: 'Auth middleware working, rate limiting not wired up yet.',
+        nextSteps: ['Wire rate limiting', 'Add token revocation'],
+        blockers: ['CORS preflight issue on staging'],
+      },
+      handoff: {
+        ts: now.toISOString(),
+        workingOn: 'Auto-extracted handoff that should be suppressed',
+      },
+    });
+    // Run once — briefing gets consumed (archived) on first read
+    output = runSessionStart(env.projectDir, env.root);
+  });
+
+  after(() => {
+    rmSync(env.root, { recursive: true, force: true });
+  });
+
+  it('injects briefing as Session Briefing section', () => {
+    assert.ok(output.includes('## Session Briefing'), 'should have Session Briefing heading');
+    assert.ok(output.includes('JWT auth middleware'), 'should include summary');
+  });
+
+  it('includes briefing fields', () => {
+    assert.ok(output.includes('Key decisions:'), 'should show key decisions');
+    assert.ok(output.includes('JWT over session tokens'), 'should include decision content');
+    assert.ok(output.includes('Current state:'), 'should show current state');
+    assert.ok(output.includes('rate limiting not wired'), 'should include state content');
+    assert.ok(output.includes('Next steps:'), 'should show next steps');
+    assert.ok(output.includes('Wire rate limiting'), 'should include step content');
+    assert.ok(output.includes('Blockers:'), 'should show blockers');
+    assert.ok(output.includes('CORS preflight'), 'should include blocker content');
+  });
+
+  it('suppresses auto-handoff when briefing exists', () => {
+    assert.ok(!output.includes('Auto-extracted handoff'), 'should NOT show auto-handoff');
+    assert.ok(!output.includes('## Last Session'), 'should NOT have Last Session heading');
+  });
+
+  it('archives briefing after reading', () => {
+    const absPath = env.projectDir.replace(/^\//, '-').replace(/\//g, '-');
+    const dataDir = join(env.root, '.claude-mneme', 'projects', absPath);
+    const briefingPath = join(dataDir, 'briefing.json');
+    const archiveDir = join(dataDir, 'briefing-archive');
+
+    // Briefing should be gone (archived)
+    assert.ok(!existsSync(briefingPath), 'briefing.json should be removed after reading');
+
+    // Archive should contain the briefing
+    assert.ok(existsSync(archiveDir), 'briefing-archive/ should exist');
+    const archived = readdirSync(archiveDir);
+    assert.ok(archived.length > 0, 'should have archived file');
+    assert.ok(archived[0].endsWith('.json'), 'archived file should be JSON');
+  });
+});
+
+// ============================================================================
+// Integration: Expired briefing falls back to handoff
+// ============================================================================
+describe('session-start integration: expired briefing', () => {
+  let env;
+
+  before(() => {
+    const now = new Date();
+    const eightDaysAgo = new Date(now - 8 * 24 * 60 * 60 * 1000);
+    env = setupProject({
+      briefing: {
+        ts: eightDaysAgo.toISOString(),
+        summary: 'Old expired briefing that should be ignored.',
+      },
+      handoff: {
+        ts: now.toISOString(),
+        workingOn: 'Fresh auto-handoff should show instead',
+      },
+    });
+  });
+
+  after(() => {
+    rmSync(env.root, { recursive: true, force: true });
+  });
+
+  it('ignores expired briefing and shows auto-handoff', () => {
+    const output = runSessionStart(env.projectDir, env.root);
+    assert.ok(!output.includes('Session Briefing'), 'should NOT show expired briefing');
+    assert.ok(output.includes('## Last Session'), 'should show Last Session');
+    assert.ok(output.includes('Fresh auto-handoff'), 'should include handoff content');
   });
 });

@@ -1,5 +1,6 @@
 ---
-description: Remove entries from remembered items
+name: forget
+description: Remove entries from remembered items. Use when the user wants to delete, remove, or clear a previously remembered item, or says "forget this", "remove that memory", or "clear my preferences".
 ---
 
 ## Your task
@@ -55,15 +56,15 @@ Uses AI to identify which entries match the description. Returns matching indice
 ## Example interactions
 
 User: `/forget my preference about tabs`
-→ Run `--match "preference about tabs"`
-→ Show: "Found 1 matching entry: [preference] Prefers tabs over spaces. Remove it?"
-→ On yes: Run `--remove 0`
-→ Confirm: "Removed 1 entry."
+-> Run `--match "preference about tabs"`
+-> Show: "Found 1 matching entry: [preference] Prefers tabs over spaces. Remove it?"
+-> On yes: Run `--remove 0`
+-> Confirm: "Removed 1 entry."
 
 User: `/forget`
-→ Run `--list`
-→ Show numbered list of all entries
-→ Ask: "Which would you like to remove? (Enter numbers or describe)"
-→ User: "1 and 3"
-→ Confirm: "Remove these 2 entries? [show them]"
-→ On yes: Run `--remove 1,3`
+-> Run `--list`
+-> Show numbered list of all entries
+-> Ask: "Which would you like to remove? (Enter numbers or describe)"
+-> User: "1 and 3"
+-> Confirm: "Remove these 2 entries? [show them]"
+-> On yes: Run `--remove 1,3`

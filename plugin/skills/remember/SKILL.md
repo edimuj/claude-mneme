@@ -1,5 +1,6 @@
 ---
-description: Save something to memory for future sessions
+name: remember
+description: Save something to memory for future sessions. Use when the user says "remember this", "save for later", "don't forget", or wants to persist any preference, fact, lesson, or note across sessions.
 ---
 
 ## Your task
