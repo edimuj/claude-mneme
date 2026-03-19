@@ -54,34 +54,6 @@ function getLanIp() {
   return 'localhost';
 }
 
-// --- Daemon mode ---
-
-if (process.argv.includes('--daemon')) {
-  const args = [fileURLToPath(import.meta.url), '--port', String(port), '--host', host];
-  const child = spawn(process.execPath, args, {
-    detached: true,
-    stdio: 'ignore',
-  });
-  child.unref();
-  // Give it a moment to bind or fail
-  setTimeout(() => {
-    try {
-      process.kill(child.pid, 0);
-      const url = host === '0.0.0.0'
-        ? `http://${getLanIp()}:${port}`
-        : `http://${host}:${port}`;
-      console.log(`Dashboard started in background (PID ${child.pid}): ${url}`);
-    } catch {
-      console.error('Dashboard failed to start');
-      process.exit(1);
-    }
-    process.exit(0);
-  }, 300);
-} else {
-  // --- Foreground mode: start server directly ---
-  startServer();
-}
-
 // --- Helpers ---
 
 function readJsonSafe(path, fallback = null) {
@@ -511,4 +483,32 @@ function startServer() {
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
   process.on('exit', removePidFile);
+}
+
+// --- Daemon mode ---
+
+if (process.argv.includes('--daemon')) {
+  const args = [fileURLToPath(import.meta.url), '--port', String(port), '--host', host];
+  const child = spawn(process.execPath, args, {
+    detached: true,
+    stdio: 'ignore',
+  });
+  child.unref();
+  // Give it a moment to bind or fail
+  setTimeout(() => {
+    try {
+      process.kill(child.pid, 0);
+      const url = host === '0.0.0.0'
+        ? `http://${getLanIp()}:${port}`
+        : `http://${host}:${port}`;
+      console.log(`Dashboard started in background (PID ${child.pid}): ${url}`);
+    } catch {
+      console.error('Dashboard failed to start');
+      process.exit(1);
+    }
+    process.exit(0);
+  }, 300);
+} else {
+  // --- Foreground mode: start server directly ---
+  startServer();
 }
