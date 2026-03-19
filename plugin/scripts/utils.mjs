@@ -2,7 +2,7 @@
  * Shared utilities for claude-mneme plugin
  */
 
-import { existsSync, mkdirSync, readFileSync, appendFileSync, writeFileSync, statSync, unlinkSync, renameSync, openSync, closeSync, writeSync, constants as fsConstants } from 'fs';
+import { existsSync, mkdirSync, readFileSync, appendFileSync, writeFileSync, statSync, unlinkSync, renameSync, openSync, closeSync, writeSync, readSync, constants as fsConstants } from 'fs';
 import { execFileSync, spawn } from 'child_process';
 import { homedir } from 'os';
 import { join, basename, dirname } from 'path';
@@ -31,6 +31,7 @@ import {
   calculateRecencyScore,
   calculateEntityRelevanceScore
 } from '../lib/entities.mjs';
+import { getLogFileState, updateLogMetadataAfterAppend } from '../lib/log-metadata.mjs';
 
 export const MEMORY_BASE = join(homedir(), '.claude-mneme');
 export const CONFIG_FILE = join(MEMORY_BASE, 'config.json');
@@ -175,9 +176,10 @@ function getFileMtime(filePath) {
 export function readCachedData(cwd = process.cwd(), config = {}) {
   const paths = ensureMemoryDirs(cwd);
   const cacheConfig = config.caching || {};
+  const logWindowEntries = config.contextInjection?.recentEntries?.scanWindowEntries || 250;
 
   if (cacheConfig.enabled === false) {
-    return readFreshData(paths);
+    return readFreshData(paths, config);
   }
 
   const maxAgeMs = (cacheConfig.maxAgeSeconds || 60) * 1000;
@@ -199,7 +201,8 @@ export function readCachedData(cwd = process.cwd(), config = {}) {
           cache.mtimes?.summary === summaryMtime &&
           cache.mtimes?.remembered === rememberedMtime &&
           cache.mtimes?.log === logMtime &&
-          cache.mtimes?.entities === entitiesMtime;
+          cache.mtimes?.entities === entitiesMtime &&
+          cache.window?.logEntries === logWindowEntries;
 
         if (mtimesMatch) {
           return cache.data;
@@ -211,7 +214,7 @@ export function readCachedData(cwd = process.cwd(), config = {}) {
   }
 
   // Cache miss or invalid - read fresh and update cache
-  const freshData = readFreshData(paths);
+  const freshData = readFreshData(paths, config);
 
   // Write cache
   try {
@@ -222,6 +225,9 @@ export function readCachedData(cwd = process.cwd(), config = {}) {
         remembered: getFileMtime(paths.remembered),
         log: getFileMtime(paths.log),
         entities: getFileMtime(paths.entities)
+      },
+      window: {
+        logEntries: logWindowEntries
       },
       data: freshData
     };
@@ -236,7 +242,7 @@ export function readCachedData(cwd = process.cwd(), config = {}) {
 /**
  * Read fresh data from source files (no caching)
  */
-function readFreshData(paths) {
+function readFreshData(paths, config = {}) {
   const result = {
     summary: null,
     remembered: [],
@@ -265,16 +271,8 @@ function readFreshData(paths) {
   // Read and parse log entries
   if (existsSync(paths.log)) {
     try {
-      const content = readFileSync(paths.log, 'utf-8').trim();
-      if (content) {
-        result.logEntries = content.split('\n')
-          .filter(l => l)
-          .map(line => {
-            try { return JSON.parse(line); }
-            catch { return null; }
-          })
-          .filter(Boolean);
-      }
+      const maxEntries = config.contextInjection?.recentEntries?.scanWindowEntries || 250;
+      result.logEntries = readRecentJsonlEntries(paths.log, maxEntries);
     } catch (e) {
       logError(e, 'readFreshData:log.jsonl');
     }
@@ -290,6 +288,46 @@ function readFreshData(paths) {
   }
 
   return result;
+}
+
+export function readRecentJsonlEntries(filePath, maxEntries = 250, chunkSize = 64 * 1024) {
+  if (!existsSync(filePath) || maxEntries <= 0) {
+    return [];
+  }
+
+  const fileSize = statSync(filePath).size;
+  if (fileSize === 0) {
+    return [];
+  }
+
+  const fd = openSync(filePath, 'r');
+
+  try {
+    let position = fileSize;
+    let content = '';
+    let lineCount = 0;
+
+    while (position > 0 && lineCount <= maxEntries) {
+      const bytesToRead = Math.min(chunkSize, position);
+      position -= bytesToRead;
+      const buffer = Buffer.alloc(bytesToRead);
+      readSync(fd, buffer, 0, bytesToRead, position);
+      content = buffer.toString('utf-8') + content;
+      lineCount = content.split('\n').filter(Boolean).length;
+    }
+
+    let lines = content.split('\n').filter(Boolean);
+    if (position > 0 && !content.startsWith('\n')) {
+      lines = lines.slice(1);
+    }
+
+    return lines.slice(-maxEntries).map((line) => {
+      try { return JSON.parse(line); }
+      catch { return null; }
+    }).filter(Boolean);
+  } finally {
+    closeSync(fd);
+  }
 }
 
 /**
@@ -1735,7 +1773,11 @@ export function flushPendingLog(cwd = process.cwd(), throttleMs = 0) {
     if (pending) {
       const logWriteLock = paths.log + '.wlock';
       const lockResult = withFileLock(logWriteLock, () => {
+        const beforeState = getLogFileState(paths.log);
         appendFileSync(paths.log, pending + '\n');
+        const afterState = getLogFileState(paths.log);
+        const appendedCount = pending.split('\n').filter(Boolean).length;
+        updateLogMetadataAfterAppend(paths.log, appendedCount, { beforeState, afterState });
         return true;
       }, 30);
 
@@ -1773,12 +1815,13 @@ export function maybeSummarize(cwd = process.cwd()) {
   const project = getProjectRoot(cwd);
 
   // Trigger via server (server handles throttling, entry count check, etc.)
-  import('../client/mneme-client.mjs')
+  return import('../client/mneme-client.mjs')
     .then(({ getClient }) => getClient())
     .then(client => client.triggerSummarize(project, false))
     .catch(err => {
       // Server unavailable or throttled, fail silently (non-critical)
       logError(err, 'maybeSummarize');
+      return null;
     });
 }
 

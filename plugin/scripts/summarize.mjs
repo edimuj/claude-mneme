@@ -22,6 +22,7 @@ import {
   withoutNestedSessionGuard,
   logError
 } from './utils.mjs';
+import { getLogFileState, writeLogMetadata } from '../lib/log-metadata.mjs';
 
 import { homedir } from 'os';
 import { join, basename } from 'path';
@@ -474,6 +475,7 @@ try {
       const currentLines = currentLogContent ? currentLogContent.split('\n').filter(l => l) : [];
       const remainingLines = currentLines.slice(summarizeCount);
       writeFileSync(paths.log, remainingLines.join('\n') + (remainingLines.length ? '\n' : ''));
+      writeLogMetadata(paths.log, remainingLines.length, getLogFileState(paths.log), (err, context) => logError(err, `summarize:${context}`));
       return remainingLines.length;
     }, 30);
 

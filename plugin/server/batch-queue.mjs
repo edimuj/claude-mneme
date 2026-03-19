@@ -14,6 +14,8 @@ export class BatchQueue {
     this.batch = [];
     this.timer = null;
     this.flushing = false;
+    this.flushRequested = false;
+    this.flushPromise = null;
   }
 
   /**
@@ -24,13 +26,16 @@ export class BatchQueue {
 
     // Flush immediately if batch is full
     if (this.batch.length >= this.maxSize) {
-      this.flush();
+      this.requestFlush();
       return;
     }
 
     // Schedule flush if not already scheduled
     if (!this.timer) {
-      this.timer = setTimeout(() => this.flush(), this.maxWaitMs);
+      this.timer = setTimeout(() => {
+        this.timer = null;
+        this.requestFlush();
+      }, this.maxWaitMs);
     }
   }
 
@@ -38,26 +43,67 @@ export class BatchQueue {
    * Flush current batch
    */
   async flush() {
-    if (this.flushing || this.batch.length === 0) return;
+    return this.requestFlush();
+  }
 
-    // Clear timer
-    if (this.timer) {
-      clearTimeout(this.timer);
-      this.timer = null;
+  requestFlush() {
+    if (this.flushing) {
+      this.flushRequested = true;
+      return this.flushPromise || Promise.resolve();
     }
 
-    // Take current batch
-    const items = this.batch;
-    this.batch = [];
+    if (this.batch.length === 0) {
+      return Promise.resolve();
+    }
+
+    this.flushPromise = this.runFlushLoop();
+    return this.flushPromise;
+  }
+
+  async runFlushLoop() {
     this.flushing = true;
 
     try {
-      await this.processor(items);
-    } catch (err) {
-      // Log error but don't throw (non-critical, best-effort)
-      console.error('[batch-queue] Flush error:', err.message);
+      while (this.batch.length > 0) {
+        this.flushRequested = false;
+
+        // Clear timer
+        if (this.timer) {
+          clearTimeout(this.timer);
+          this.timer = null;
+        }
+
+        // Take current batch
+        const items = this.batch;
+        this.batch = [];
+
+        try {
+          await this.processor(items);
+        } catch (err) {
+          // Log error but don't throw (non-critical, best-effort)
+          console.error('[batch-queue] Flush error:', err.message);
+        }
+
+        if (this.batch.length === 0) {
+          break;
+        }
+
+        if (this.flushRequested || this.batch.length >= this.maxSize) {
+          continue;
+        }
+
+        if (!this.timer) {
+          this.timer = setTimeout(() => {
+            this.timer = null;
+            this.requestFlush();
+          }, this.maxWaitMs);
+        }
+
+        break;
+      }
     } finally {
       this.flushing = false;
+      this.flushPromise = null;
     }
   }
 

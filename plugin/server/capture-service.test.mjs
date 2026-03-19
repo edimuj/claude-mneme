@@ -170,6 +170,15 @@ describe('CaptureService', () => {
       ];
       assert.equal(service._extractLastAssistantText(transcript), '');
     });
+
+    it('extracts fast-path text from hook data', () => {
+      assert.equal(
+        service._extractLastAssistantTextFromHook({
+          last_assistant_message: [{ type: 'text', text: 'Fast path reply' }]
+        }),
+        'Fast path reply'
+      );
+    });
   });
 
   describe('_isDuplicate', () => {
@@ -296,6 +305,23 @@ describe('CaptureService', () => {
   });
 
   describe('integration: capture()', () => {
+    it('uses last_assistant_message fast path without transcript polling', async () => {
+      service._waitForStableFile = async () => {
+        throw new Error('should not poll transcript on fast path');
+      };
+
+      const result = service.capture('test-project', {
+        last_assistant_message: [{ type: 'text', text: 'Fast path response from hook data' }]
+      });
+      assert.equal(result.ok, true);
+      assert.equal(result.accepted, true);
+
+      await service.processing.get('test-project');
+
+      assert.equal(logService.appended.length, 1);
+      assert.ok(logService.appended[0].entry.content.includes('Fast path response'));
+    });
+
     it('processes transcript and writes log + handoff', async () => {
       const transcriptFile = join(tmp, 'transcript.jsonl');
       writeFileSync(transcriptFile, [

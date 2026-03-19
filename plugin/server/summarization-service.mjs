@@ -16,6 +16,22 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 export const SUMMARIZE_SCRIPT = join(__dirname, '..', 'scripts', 'summarize.mjs');
 import { Throttler, ThrottleError } from './throttler.mjs';
 import { MemoryCache } from './memory-cache.mjs';
+import { getLogEntryCount } from '../lib/log-metadata.mjs';
+
+function createTimingStats() {
+  return { count: 0, totalMs: 0, maxMs: 0, metadataHits: 0, rescans: 0 };
+}
+
+function recordTiming(stats, durationMs, { fromMetadata = false } = {}) {
+  stats.count++;
+  stats.totalMs += durationMs;
+  stats.maxMs = Math.max(stats.maxMs, durationMs);
+  if (fromMetadata) {
+    stats.metadataHits++;
+  } else {
+    stats.rescans++;
+  }
+}
 
 export class SummarizationService {
   constructor(config, logger, getProjectDir) {
@@ -35,7 +51,10 @@ export class SummarizationService {
       summarizationsStarted: 0,
       summarizationsCompleted: 0,
       summarizationsFailed: 0,
-      throttled: 0
+      throttled: 0,
+      timings: {
+        thresholdCheckMs: createTimingStats()
+      }
     };
 
     // Periodic cache cleanup
@@ -68,22 +87,9 @@ export class SummarizationService {
       };
     }
 
-    // Try to execute (may throw ThrottleError)
+    let ticket;
     try {
-      const promise = this.throttler.execute(project, () =>
-        this.runSummarization(project)
-      );
-
-      this.running.set(project, promise);
-      promise.finally(() => this.running.delete(project));
-
-      this.stats.summarizationsStarted++;
-
-      return {
-        ok: true,
-        queued: true,
-        running: false
-      };
+      ticket = this.throttler.start(project);
     } catch (err) {
       if (err instanceof ThrottleError) {
         this.stats.throttled++;
@@ -97,6 +103,31 @@ export class SummarizationService {
       }
       throw err;
     }
+
+    const promise = this.runSummarization(project)
+      .then((result) => {
+        ticket.success();
+        return result;
+      })
+      .catch((err) => {
+        ticket.failure();
+        throw err;
+      });
+
+    this.running.set(project, promise);
+    promise.then(
+      () => this.running.delete(project),
+      () => this.running.delete(project)
+    );
+    promise.catch(() => {});
+
+    this.stats.summarizationsStarted++;
+
+    return {
+      ok: true,
+      queued: true,
+      running: false
+    };
   }
 
   /**
@@ -112,9 +143,15 @@ export class SummarizationService {
       return false;
     }
 
-    // Count log entries
-    const logContent = readFileSync(logFile, 'utf-8');
-    const entries = logContent.trim().split('\n').filter(Boolean);
+    const startedAt = Date.now();
+    const { entryCount, fromMetadata } = getLogEntryCount(logFile, {
+      logErrorFn: (err, context) => this.logger.error('summarization-log-metadata-failed', {
+        project,
+        context,
+        error: err.message
+      })
+    });
+    recordTiming(this.stats.timings.thresholdCheckMs, Date.now() - startedAt, { fromMetadata });
 
     // Get last summarized entry count
     let lastSummarizedCount = 0;
@@ -127,7 +164,7 @@ export class SummarizationService {
       }
     }
 
-    const newEntries = entries.length - lastSummarizedCount;
+    const newEntries = entryCount - lastSummarizedCount;
     const threshold = this.config.summarization?.entryThreshold || 50;
 
     return newEntries >= threshold;
@@ -237,10 +274,17 @@ export class SummarizationService {
    * Get service stats
    */
   getStats() {
+    const thresholdTiming = this.stats.timings.thresholdCheckMs;
     return {
       ...this.stats,
       cacheStats: this.cache.getStats(),
-      runningCount: this.running.size
+      runningCount: this.running.size,
+      timings: {
+        thresholdCheckMs: {
+          ...thresholdTiming,
+          avgMs: thresholdTiming.count > 0 ? thresholdTiming.totalMs / thresholdTiming.count : 0
+        }
+      }
     };
   }
 

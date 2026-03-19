@@ -6,7 +6,17 @@
  * No file locking needed — the server is the single writer.
  */
 
-import { extractEntitiesFromEntry, loadEntityIndex, updateEntityIndex } from '../lib/entities.mjs';
+import { updateEntityIndexBatch } from '../lib/entities.mjs';
+
+function createTimingStats() {
+  return { count: 0, totalMs: 0, maxMs: 0 };
+}
+
+function recordTiming(stats, durationMs) {
+  stats.count++;
+  stats.totalMs += durationMs;
+  stats.maxMs = Math.max(stats.maxMs, durationMs);
+}
 
 export class EntityService {
   constructor(config, logger, getProjectDir) {
@@ -15,8 +25,14 @@ export class EntityService {
     this.getProjectDir = getProjectDir;
     this.stats = {
       entriesProcessed: 0,
+      batchesProcessed: 0,
       entitiesExtracted: 0,
-      writeErrors: 0
+      indexLoads: 0,
+      indexWrites: 0,
+      writeErrors: 0,
+      timings: {
+        batchUpdateMs: createTimingStats()
+      }
     };
   }
 
@@ -29,25 +45,27 @@ export class EntityService {
 
     if (eeConfig.enabled === false) return;
 
-    for (const entry of entries) {
-      try {
-        updateEntityIndex(entry, projectDir, this.config, {
-          logErrorFn: (err, ctx) => this.logger.error('entity-update-error', {
-            project, context: ctx, error: err.message
-          })
-          // No withFileLockFn — server is single writer
-        });
-        this.stats.entriesProcessed++;
+    const startedAt = Date.now();
 
-        const extracted = extractEntitiesFromEntry(entry, eeConfig);
-        this.stats.entitiesExtracted += Object.values(extracted).reduce((sum, arr) => sum + arr.length, 0);
-      } catch (err) {
-        this.stats.writeErrors++;
-        this.logger.error('entity-process-error', {
-          project,
-          error: err.message
-        });
-      }
+    try {
+      const result = updateEntityIndexBatch(entries, projectDir, this.config, {
+        logErrorFn: (err, ctx) => this.logger.error('entity-update-error', {
+          project, context: ctx, error: err.message
+        })
+      });
+
+      this.stats.entriesProcessed += result.processedEntries;
+      this.stats.entitiesExtracted += result.entitiesExtracted;
+      this.stats.indexLoads += result.reads;
+      this.stats.indexWrites += result.writes;
+      this.stats.batchesProcessed++;
+      recordTiming(this.stats.timings.batchUpdateMs, Date.now() - startedAt);
+    } catch (err) {
+      this.stats.writeErrors++;
+      this.logger.error('entity-process-error', {
+        project,
+        error: err.message
+      });
     }
 
     this.logger.debug('entities-processed', {
@@ -58,6 +76,15 @@ export class EntityService {
   }
 
   getStats() {
-    return { ...this.stats };
+    const timing = this.stats.timings.batchUpdateMs;
+    return {
+      ...this.stats,
+      timings: {
+        batchUpdateMs: {
+          ...timing,
+          avgMs: timing.count > 0 ? timing.totalMs / timing.count : 0
+        }
+      }
+    };
   }
 }

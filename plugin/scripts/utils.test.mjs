@@ -29,6 +29,7 @@ import {
   loadConfig,
   flushPendingLog,
   ensureMemoryDirs,
+  readCachedData,
   getProjectRoot,
   getProjectName,
   MEMORY_BASE,
@@ -542,6 +543,44 @@ describe('flushPendingLog', () => {
   it('handles missing pending file gracefully', () => {
     // Should not throw
     flushPendingLog(tmpDir, 0);
+  });
+
+  it('updates log metadata when moving pending entries', () => {
+    const paths = ensureMemoryDirs(tmpDir);
+    const pendingPath = paths.log.replace('.jsonl', '.pending.jsonl');
+    const metadataPath = join(paths.project, 'log.meta.json');
+
+    rmSync(paths.log, { force: true });
+    rmSync(metadataPath, { force: true });
+    appendFileSync(pendingPath, JSON.stringify({ ts: new Date().toISOString(), type: 'test', content: 'meta' }) + '\n');
+    flushPendingLog(tmpDir, 0);
+
+    const metadata = JSON.parse(readFileSync(metadataPath, 'utf-8'));
+    assert.equal(metadata.entryCount, 1);
+  });
+});
+
+describe('readCachedData log windowing', () => {
+  it('loads only the recent log window for large logs', () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), 'mneme-read-cache-'));
+    const paths = ensureMemoryDirs(tmpDir);
+
+    const lines = Array.from({ length: 500 }, (_, i) =>
+      JSON.stringify({ ts: new Date().toISOString(), type: 'prompt', content: `entry ${i}` })
+    ).join('\n') + '\n';
+    writeFileSync(paths.log, lines);
+
+    const data = readCachedData(tmpDir, {
+      caching: { enabled: false },
+      contextInjection: { recentEntries: { scanWindowEntries: 40 } }
+    });
+
+    assert.equal(data.logEntries.length, 40);
+    assert.equal(data.logEntries[0].content, 'entry 460');
+    assert.equal(data.logEntries[39].content, 'entry 499');
+
+    rmSync(tmpDir, { recursive: true, force: true });
+    rmSync(paths.project, { recursive: true, force: true });
   });
 });
 

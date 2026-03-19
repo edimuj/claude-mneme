@@ -1,6 +1,6 @@
 {
   "name": "claude-mneme",
-  "version": "3.10.0",
+  "version": "3.11.0",
   "license": "MIT",
   "type": "module",
   "repository": {
@@ -24,7 +24,7 @@
     "install-deps": "npm install",
     "test": "node --test scripts/utils.test.mjs",
     "test:server": "node server/test-server.mjs",
-    "test:log": "node server/test-log-service.mjs",
+    "test:log": "node --test server/test-log-service.mjs",
     "test:summarization": "node server/test-summarization.mjs",
     "test:capture": "node --test server/capture-service.test.mjs",
     "dashboard": "node dashboard/server.mjs",

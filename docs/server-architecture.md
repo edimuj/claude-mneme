@@ -4,6 +4,8 @@
 
 Local daemon process that centralizes resource management for Claude Mneme across multiple concurrent Claude Code sessions.
 
+Current implementation is server-first, not server-only. Hooks prefer the local daemon for log writes, entity indexing, capture, and summarization dispatch, while compatible file-based fallback paths remain in place for degraded/offline cases.
+
 ## Design Decisions
 
 ### 1. Transport: HTTP on localhost
@@ -87,9 +89,7 @@ GET /health
     uptime: 12345,
     activeSessions: 3,
     queueDepth: {
-      log: 15,
-      summarize: 0,
-      entity: 2
+      log: 15
     },
     cache: {
       hitRate: 0.85,
@@ -99,7 +99,27 @@ GET /health
     stats: {
       requestsHandled: 1234,
       errorsTotal: 2,
-      summarizationsCompleted: 5
+      log: {
+        entriesReceived: 500,
+        entriesWritten: 420,
+        batchesFlushed: 7,
+        metadataRescans: 1
+      },
+      summarization: {
+        started: 5,
+        completed: 5,
+        throttled: 2
+      },
+      entity: {
+        batchesProcessed: 7,
+        indexLoads: 7,
+        indexWrites: 7
+      }
+    },
+    timings: {
+      logFlushMs: { count: 7, avgMs: 2.1, maxMs: 6 },
+      summarizationThresholdCheckMs: { count: 12, avgMs: 0.3, metadataHits: 11, rescans: 1 },
+      entityBatchUpdateMs: { count: 7, avgMs: 1.5, maxMs: 4 }
     }
   }
 
@@ -160,6 +180,14 @@ log('error', 'file-write-failed', { project, error: err.message });
 **Cons**:
 - Slightly more code
 - Log files need rotation
+
+### Current hot-path behavior
+
+- Log appends update `log.meta.json` so summarize threshold checks avoid full `log.jsonl` scans in the normal path.
+- Entity extraction batches all entries written for a project flush into one `entities.json` load/update/write cycle.
+- Stop-hook capture uses `last_assistant_message` as the fast path and falls back to transcript parsing only when the fast path is missing or insufficient.
+- SessionStart reads only a bounded recent log window for relevance ranking instead of parsing the full project log.
+- Manual and scripted log truncation paths refresh `log.meta.json` after rewriting the log so counter-based threshold checks stay correct across summarize operations.
 
 ### 4. Multi-Machine Support (Future)
 

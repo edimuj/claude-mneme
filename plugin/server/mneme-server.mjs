@@ -309,7 +309,8 @@ class MnemeServer {
           entriesReceived: logStats.entriesReceived,
           entriesDeduplicated: logStats.entriesDeduplicated,
           entriesWritten: logStats.entriesWritten,
-          batchesFlushed: logStats.batchesFlushed
+          batchesFlushed: logStats.batchesFlushed,
+          metadataRescans: logStats.metadataRescans
         },
         summarization: {
           started: sumStats.summarizationsStarted,
@@ -319,6 +320,11 @@ class MnemeServer {
         },
         entity: this.entityService.getStats(),
         capture: this.captureService.getStats()
+      },
+      timings: {
+        logFlushMs: logStats.timings?.flushMs || null,
+        summarizationThresholdCheckMs: sumStats.timings?.thresholdCheckMs || null,
+        entityBatchUpdateMs: this.entityService.getStats().timings?.batchUpdateMs || null
       }
     };
 

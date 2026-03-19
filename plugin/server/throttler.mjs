@@ -15,12 +15,11 @@ export class Throttler {
   }
 
   /**
-   * Execute function with throttling
+   * Reserve a throttle slot synchronously
    * @param {string} key - Throttle key (e.g., project path)
-   * @param {Function} fn - Async function to execute
-   * @returns {Promise} - Result of fn() or throws if throttled
+   * @returns {{success: Function, failure: Function}} - Settlement callbacks
    */
-  async execute(key, fn) {
+  start(key) {
     // Check cooldown
     const lastRun = this.lastRun.get(key);
     if (lastRun) {
@@ -37,12 +36,42 @@ export class Throttler {
     }
 
     this.running++;
+
+    let settled = false;
+    const finish = (succeeded) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (succeeded) {
+        this.lastRun.set(key, Date.now());
+      }
+      this.running--;
+    };
+
+    return {
+      success: () => finish(true),
+      failure: () => finish(false)
+    };
+  }
+
+  /**
+   * Execute function with throttling
+   * @param {string} key - Throttle key (e.g., project path)
+   * @param {Function} fn - Async function to execute
+   * @returns {Promise} - Result of fn() or throws if throttled
+   */
+  async execute(key, fn) {
+    const ticket = this.start(key);
     try {
       const result = await fn();
-      this.lastRun.set(key, Date.now());
+      ticket.success();
       return result;
+    } catch (err) {
+      ticket.failure();
+      throw err;
     } finally {
-      this.running--;
+      // Ticket settlement handles running/cooldown state.
     }
   }
 

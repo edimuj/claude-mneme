@@ -16,8 +16,10 @@ export class Deduplicator {
    * Check if entry is a duplicate
    * Returns true if duplicate, false otherwise
    */
-  isDuplicate(entry) {
-    const hash = this.hashEntry(entry);
+  isDuplicate(scopeOrEntry, maybeEntry) {
+    const scope = maybeEntry === undefined ? '' : scopeOrEntry;
+    const entry = maybeEntry === undefined ? scopeOrEntry : maybeEntry;
+    const hash = this.hashEntry(scope, entry);
     const lastSeen = this.recentHashes.get(hash);
     const now = Date.now();
 
@@ -35,16 +37,17 @@ export class Deduplicator {
   /**
    * Hash entry based on type and content (ignore timestamp)
    */
-  hashEntry(entry) {
+  hashEntry(scope, entry) {
     const { type, content, action, outcome, subject } = entry;
+    const prefix = scope ? `${scope}:` : '';
 
     // For task entries, include action/outcome/subject
     if (type === 'task') {
-      return `task:${action || ''}:${outcome || ''}:${subject || ''}`;
+      return `${prefix}task:${action || ''}:${outcome || ''}:${subject || ''}`;
     }
 
     // For other entries, use type + content
-    return `${type}:${content || ''}`;
+    return `${prefix}${type}:${content || ''}`;
   }
 
   /**

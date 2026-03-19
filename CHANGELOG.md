@@ -2,6 +2,27 @@
 
 All notable changes to Claude Mneme will be documented in this file.
 
+## [Unreleased]
+
+## [3.11.0] - 2026-03-19
+
+### Fixed
+
+- Stabilized server-side deduplication so identical entries from different projects no longer collapse into each other.
+- Fixed summarization trigger throttling/control-flow so cooldown and concurrency responses are accurate and no unhandled throttle rejections leak out.
+- Fixed `BatchQueue` drain races so batches added during an in-flight flush are always drained afterward.
+- Made `session-stop` await summarize dispatch with a bounded timeout before continuing shutdown.
+- Protected manual summarize log truncation with the log write lock and preserved entries appended during the summarize window.
+- Replaced the flaky log-service integration harness with deterministic isolated tests so `npm run test:log` passes reliably.
+
+### Changed
+
+- Batched entity index updates per project flush to one `entities.json` load/write cycle.
+- Added `log.meta.json` entry-count metadata so summarize threshold checks avoid full `log.jsonl` scans in the normal path and self-heal on external mutations.
+- Bounded SessionStart log loading to a recent-entry window instead of parsing the full log for relevance ranking.
+- Added Stop-hook capture fast path using `last_assistant_message`, with transcript fallback retained for edge cases.
+- Exposed low-overhead hot-path timing metrics in `GET /health` for log flushes, summarize threshold checks, and entity batch updates.
+
 ## [3.0.0] - 2026-02-12
 
 ### 🚀 Major Rewrite: Server-Based Architecture
@@ -42,9 +63,9 @@ All notable changes to Claude Mneme will be documented in this file.
 
 - **`appendLogEntry()`** now sends to server instead of direct file writes
 - **`maybeSummarize()`** now triggers via server instead of spawning process
-- **Session hooks** use thin HTTP client instead of direct file I/O
-- **Flush behavior** now server-controlled batching (no more `.pending.jsonl`)
-- **Lock files** eliminated (server is single writer)
+- **Session hooks** use thin HTTP client on the normal path
+- **Flush behavior** is server-first batching, with file-based fallback paths retained for degraded/offline cases
+- **Lock contention** is removed from the normal server path, while compatibility lock files remain for fallback/manual flows
 
 ### Removed
 

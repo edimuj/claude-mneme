@@ -75,28 +75,38 @@ export class CaptureService {
    */
   async _processCapture(project, hookData) {
     const { transcript_path } = hookData;
+    let transcript = null;
+    let textContent = this._extractLastAssistantTextFromHook(hookData);
 
-    if (!transcript_path) {
-      this.logger.warn('capture-no-transcript-path', { project });
-      return;
+    if (!textContent) {
+      if (!transcript_path) {
+        this.logger.warn('capture-no-transcript-path', { project });
+        return;
+      }
+
+      // Wait for file to stabilize (Claude Code may still be flushing)
+      const stable = await this._waitForStableFile(transcript_path);
+      if (!stable) {
+        this.logger.warn('capture-file-not-stable', { project, transcript_path });
+        // Read anyway — graceful degradation
+      }
+
+      // Parse transcript
+      transcript = this._readTranscript(transcript_path);
+      if (!transcript || transcript.length === 0) {
+        this.logger.debug('capture-empty-transcript', { project, transcript_path });
+        return;
+      }
+
+      // Extract last assistant text
+      textContent = this._extractLastAssistantText(transcript);
+    } else {
+      this.logger.debug('capture-fast-path', { project });
+      if (transcript_path && existsSync(transcript_path)) {
+        transcript = this._readTranscript(transcript_path);
+      }
     }
 
-    // Wait for file to stabilize (Claude Code may still be flushing)
-    const stable = await this._waitForStableFile(transcript_path);
-    if (!stable) {
-      this.logger.warn('capture-file-not-stable', { project, transcript_path });
-      // Read anyway — graceful degradation
-    }
-
-    // Parse transcript
-    const transcript = this._readTranscript(transcript_path);
-    if (!transcript || transcript.length === 0) {
-      this.logger.debug('capture-empty-transcript', { project, transcript_path });
-      return;
-    }
-
-    // Extract last assistant text
-    const textContent = this._extractLastAssistantText(transcript);
     if (!textContent) {
       this.logger.debug('capture-no-assistant-text', { project, entries: transcript.length });
       return;
@@ -137,15 +147,17 @@ export class CaptureService {
     this.lastCapturedPrefix.set(project, processed.substring(0, PREFIX_LENGTH).toLowerCase());
 
     // Build and write handoff
-    try {
-      const handoff = this._extractHandoff(transcript, processed);
-      this._writeHandoff(project, handoff);
-      this.stats.handoffs++;
-    } catch (err) {
-      this.logger.error('capture-handoff-failed', {
-        project,
-        error: err.message
-      });
+    if (transcript && transcript.length > 0) {
+      try {
+        const handoff = this._extractHandoff(transcript, processed);
+        this._writeHandoff(project, handoff);
+        this.stats.handoffs++;
+      } catch (err) {
+        this.logger.error('capture-handoff-failed', {
+          project,
+          error: err.message
+        });
+      }
     }
   }
 
@@ -231,6 +243,11 @@ export class CaptureService {
       }
     }
     return '';
+  }
+
+  _extractLastAssistantTextFromHook(hookData) {
+    const content = hookData?.last_assistant_message;
+    return this._extractTextContent(content);
   }
 
   /**

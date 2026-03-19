@@ -10,6 +10,17 @@ import { join } from 'path';
 import { homedir } from 'os';
 import { BatchQueue } from './batch-queue.mjs';
 import { Deduplicator } from './deduplicator.mjs';
+import { getLogFileState, updateLogMetadataAfterAppend } from '../lib/log-metadata.mjs';
+
+function createTimingStats() {
+  return { count: 0, totalMs: 0, maxMs: 0 };
+}
+
+function recordTiming(stats, durationMs) {
+  stats.count++;
+  stats.totalMs += durationMs;
+  stats.maxMs = Math.max(stats.maxMs, durationMs);
+}
 
 export class LogService {
   constructor(config, logger, { onEntriesWritten } = {}) {
@@ -22,7 +33,11 @@ export class LogService {
       entriesDeduplicated: 0,
       entriesWritten: 0,
       batchesFlushed: 0,
-      writeErrors: 0
+      writeErrors: 0,
+      metadataRescans: 0,
+      timings: {
+        flushMs: createTimingStats()
+      }
     };
 
     // Create batch queue with processor
@@ -40,7 +55,7 @@ export class LogService {
     this.stats.entriesReceived++;
 
     // Deduplicate
-    if (this.deduplicator.isDuplicate(entry)) {
+    if (this.deduplicator.isDuplicate(project, entry)) {
       this.stats.entriesDeduplicated++;
       return { ok: true, deduplicated: true, queued: false };
     }
@@ -63,6 +78,7 @@ export class LogService {
    * Process a batch of entries (group by project and write)
    */
   async processBatch(items) {
+    const startedAt = Date.now();
     // Group by project
     const byProject = new Map();
     for (const { project, entry } of items) {
@@ -93,6 +109,7 @@ export class LogService {
     }
 
     this.stats.batchesFlushed++;
+    recordTiming(this.stats.timings.flushMs, Date.now() - startedAt);
 
     this.logger.debug('log-batch-flushed', {
       projects: byProject.size,
@@ -115,9 +132,25 @@ export class LogService {
 
     // Prepare log lines
     const lines = entries.map(e => JSON.stringify(e)).join('\n') + '\n';
+    const beforeState = getLogFileState(logFile);
 
     // Single atomic write (no locking needed — we're the only writer)
     appendFileSync(logFile, lines);
+    const afterState = getLogFileState(logFile);
+
+    const metadataResult = updateLogMetadataAfterAppend(logFile, entries.length, {
+      beforeState,
+      afterState,
+      logErrorFn: (err, context) => this.logger.error('log-metadata-failed', {
+        project,
+        context,
+        error: err.message
+      })
+    });
+
+    if (metadataResult.scanned) {
+      this.stats.metadataRescans++;
+    }
   }
 
   /**
@@ -141,10 +174,17 @@ export class LogService {
    * Get stats
    */
   getStats() {
+    const flushTiming = this.stats.timings.flushMs;
     return {
       ...this.stats,
       queueDepth: this.queue.depth(),
-      deduplicatorSize: this.deduplicator.size()
+      deduplicatorSize: this.deduplicator.size(),
+      timings: {
+        flushMs: {
+          ...flushTiming,
+          avgMs: flushTiming.count > 0 ? flushTiming.totalMs / flushTiming.count : 0
+        }
+      }
     };
   }
 

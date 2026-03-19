@@ -306,6 +306,123 @@ export function truncateContext(text, maxLen) {
   return cleaned.slice(0, maxLen - 3) + '...';
 }
 
+export function applyExtractedEntitiesToIndex(index, entities, entry, eeConfig = {}) {
+  const maxContexts = eeConfig.maxContextsPerEntity || 5;
+  const contextSummary = {
+    ts: entry.ts,
+    type: entry.type,
+    summary: truncateContext(entry.content || entry.subject || '', 80)
+  };
+
+  let extractedCount = 0;
+
+  for (const [category, names] of Object.entries(entities)) {
+    if (!index[category]) index[category] = {};
+
+    for (const name of names) {
+      extractedCount++;
+
+      if (!index[category][name]) {
+        index[category][name] = {
+          mentions: 0,
+          lastSeen: null,
+          contexts: []
+        };
+      }
+
+      const entityData = index[category][name];
+      entityData.mentions++;
+      entityData.lastSeen = entry.ts;
+
+      entityData.contexts.push(contextSummary);
+      if (entityData.contexts.length > maxContexts) {
+        entityData.contexts = entityData.contexts.slice(-maxContexts);
+      }
+    }
+  }
+
+  return extractedCount;
+}
+
+export function writeEntityIndex(projectDir, index, logErrorFn = () => {}) {
+  const entitiesPath = join(projectDir, 'entities.json');
+  try {
+    writeFileSync(entitiesPath, JSON.stringify(index, null, 2));
+    return true;
+  } catch (e) {
+    logErrorFn(e, 'writeEntityIndex');
+    return false;
+  }
+}
+
+export function updateEntityIndexBatch(entries, projectDir, config = {}, options = {}) {
+  const eeConfig = config.entityExtraction || {};
+  if (eeConfig.enabled === false || !entries || entries.length === 0) {
+    return {
+      processedEntries: 0,
+      entitiesExtracted: 0,
+      reads: 0,
+      writes: 0
+    };
+  }
+
+  const logErrorFn = options.logErrorFn || (() => {});
+
+  if (!existsSync(projectDir)) {
+    mkdirSync(projectDir, { recursive: true });
+  }
+
+  const doUpdate = () => {
+    const index = loadEntityIndex(projectDir, logErrorFn);
+    let processedEntries = 0;
+    let entitiesExtracted = 0;
+
+    for (const entry of entries) {
+      const entities = extractEntitiesFromEntry(entry, eeConfig);
+      if (Object.keys(entities).length === 0) {
+        continue;
+      }
+
+      entitiesExtracted += applyExtractedEntitiesToIndex(index, entities, entry, eeConfig);
+      processedEntries++;
+    }
+
+    if (processedEntries === 0) {
+      return {
+        processedEntries: 0,
+        entitiesExtracted: 0,
+        reads: 1,
+        writes: 0
+      };
+    }
+
+    index.lastUpdated = new Date().toISOString();
+    pruneEntityIndex(index, eeConfig);
+
+    const wrote = writeEntityIndex(projectDir, index, logErrorFn);
+
+    return {
+      processedEntries,
+      entitiesExtracted,
+      reads: 1,
+      writes: wrote ? 1 : 0
+    };
+  };
+
+  if (options.withFileLockFn) {
+    const lockPath = join(projectDir, 'entities.json.lock');
+    const result = options.withFileLockFn(lockPath, doUpdate);
+    return result || {
+      processedEntries: 0,
+      entitiesExtracted: 0,
+      reads: 0,
+      writes: 0
+    };
+  }
+
+  return doUpdate();
+}
+
 /**
  * Update the entity index with extracted entities from a single entry.
  * Writes to projectDir/entities.json.
@@ -316,71 +433,7 @@ export function truncateContext(text, maxLen) {
  * @param {object} [options] - { logErrorFn, withFileLockFn }
  */
 export function updateEntityIndex(entry, projectDir, config = {}, options = {}) {
-  const eeConfig = config.entityExtraction || {};
-  if (eeConfig.enabled === false) return;
-
-  const entities = extractEntitiesFromEntry(entry, eeConfig);
-  if (Object.keys(entities).length === 0) return;
-
-  const entitiesPath = join(projectDir, 'entities.json');
-  const logErrorFn = options.logErrorFn || (() => {});
-
-  // Ensure directory exists
-  if (!existsSync(projectDir)) {
-    mkdirSync(projectDir, { recursive: true });
-  }
-
-  const doUpdate = () => {
-    const index = loadEntityIndex(projectDir, logErrorFn);
-    const maxContexts = eeConfig.maxContextsPerEntity || 5;
-
-    const contextSummary = {
-      ts: entry.ts,
-      type: entry.type,
-      summary: truncateContext(entry.content || entry.subject || '', 80)
-    };
-
-    for (const [category, names] of Object.entries(entities)) {
-      if (!index[category]) index[category] = {};
-
-      for (const name of names) {
-        if (!index[category][name]) {
-          index[category][name] = {
-            mentions: 0,
-            lastSeen: null,
-            contexts: []
-          };
-        }
-
-        const entityData = index[category][name];
-        entityData.mentions++;
-        entityData.lastSeen = entry.ts;
-
-        entityData.contexts.push(contextSummary);
-        if (entityData.contexts.length > maxContexts) {
-          entityData.contexts = entityData.contexts.slice(-maxContexts);
-        }
-      }
-    }
-
-    index.lastUpdated = new Date().toISOString();
-    pruneEntityIndex(index, eeConfig);
-
-    try {
-      writeFileSync(entitiesPath, JSON.stringify(index, null, 2));
-    } catch (e) {
-      logErrorFn(e, 'updateEntityIndex:write');
-    }
-  };
-
-  // If a file lock function is provided (client-side), use it.
-  // Server-side doesn't need locking — it's the single writer.
-  if (options.withFileLockFn) {
-    const lockPath = entitiesPath + '.lock';
-    options.withFileLockFn(lockPath, doUpdate);
-  } else {
-    doUpdate();
-  }
+  updateEntityIndexBatch([entry], projectDir, config, options);
 }
 
 // ---------------------------------------------------------------------------
