@@ -295,14 +295,33 @@ function invalidateProjectCache(projectName) {
   try { writeFileSync(cachePath, '{}\n'); } catch {}
 }
 
-const MEM_SUMMARIZE_SCRIPT = join(__dirname, '..', 'scripts', 'mem-summarize.mjs');
+const REQUIRED_SCRIPTS = {
+  summarize: join(__dirname, '..', 'scripts', 'mem-summarize.mjs'),
+};
+
+function validateScripts() {
+  const missing = [];
+  for (const [name, scriptPath] of Object.entries(REQUIRED_SCRIPTS)) {
+    if (!existsSync(scriptPath)) missing.push(`${name}: ${scriptPath}`);
+  }
+  if (missing.length > 0) {
+    console.error(`Fatal: required scripts not found — server may be running from a stale path`);
+    console.error(`  __dirname: ${__dirname}`);
+    for (const m of missing) console.error(`  missing: ${m}`);
+    process.exit(1);
+  }
+}
 
 async function handleSummarize(projectName) {
+  const script = REQUIRED_SCRIPTS.summarize;
+  if (!existsSync(script)) {
+    return { status: 'error', message: `Script not found: ${script} — restart the dashboard server from the correct path` };
+  }
   const projectDir = join(PROJECTS_DIR, projectName);
   return new Promise((resolve, reject) => {
     let stdout = '';
     let stderr = '';
-    const child = execFile(process.execPath, [MEM_SUMMARIZE_SCRIPT, '--force', '--project-dir', projectDir], {
+    const child = execFile(process.execPath, [script, '--force', '--project-dir', projectDir], {
       timeout: 120000,
     }, (err) => {
       invalidateProjectCache(projectName);
@@ -462,6 +481,7 @@ async function handleRequest(req, res) {
 // --- Start ---
 
 function startServer() {
+  validateScripts();
   const server = createServer(handleRequest);
 
   server.on('error', (err) => {
