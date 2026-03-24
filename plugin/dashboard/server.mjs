@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { createServer } from 'node:http';
-import { readFileSync, readdirSync, existsSync, statSync, writeFileSync, unlinkSync, openSync, closeSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync, statSync, writeFileSync, unlinkSync, openSync, closeSync, rmSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -335,6 +335,12 @@ function handleDeleteEntity(projectName, category, entity) {
   });
 }
 
+function handleDeleteProject(projectName) {
+  const projectDir = join(PROJECTS_DIR, projectName);
+  rmSync(projectDir, { recursive: true, force: true });
+  return { status: 'ok', deleted: projectName };
+}
+
 function handleDeleteLog(projectName, index) {
   const filePath = join(PROJECTS_DIR, projectName, 'log.jsonl');
   return withFileLock(filePath + '.wlock', () => {
@@ -356,7 +362,7 @@ async function handleRequest(req, res) {
 
   res.setHeader('X-Content-Type-Options', 'nosniff');
 
-  if (req.method !== 'GET' && req.method !== 'POST') {
+  if (req.method !== 'GET' && req.method !== 'POST' && req.method !== 'DELETE') {
     res.writeHead(405, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Method not allowed' }));
     return;
@@ -415,6 +421,23 @@ async function handleRequest(req, res) {
       sendJson(res, result);
     } catch (err) {
       sendJson(res, { error: err.message }, 400);
+    }
+    return;
+  }
+
+  // DELETE project: /api/projects/:name
+  const deleteMatch = path.match(/^\/api\/projects\/([^/]+)$/);
+  if (deleteMatch && req.method === 'DELETE') {
+    const projectName = decodeURIComponent(deleteMatch[1]);
+    if (!isValidProjectName(projectName)) {
+      sendJson(res, { error: 'Project not found' }, 404);
+      return;
+    }
+    try {
+      const result = handleDeleteProject(projectName);
+      sendJson(res, result);
+    } catch (err) {
+      sendJson(res, { error: err.message }, 500);
     }
     return;
   }

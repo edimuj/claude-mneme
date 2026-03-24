@@ -24,9 +24,13 @@
   .status-running { background: var(--green); box-shadow: 0 0 6px var(--green); }
   .status-stopped { background: var(--red); opacity: 0.6; }
   #project-list { flex: 1; overflow-y: auto; padding: 8px 0; }
-  .sidebar-item { display: block; padding: 8px 16px; color: var(--text-muted); cursor: pointer; border-left: 3px solid transparent; transition: all 0.15s; }
+  .sidebar-item { display: flex; align-items: center; padding: 8px 16px; color: var(--text-muted); cursor: pointer; border-left: 3px solid transparent; transition: all 0.15s; }
   .sidebar-item:hover { background: var(--accent-dim); color: var(--text); text-decoration: none; }
   .sidebar-item.active { border-left-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+  .sidebar-item .project-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sidebar-item .delete-btn { display: none; background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 2px 4px; font-size: 12px; line-height: 1; border-radius: 3px; flex-shrink: 0; }
+  .sidebar-item .delete-btn:hover { color: var(--red); background: rgba(248, 81, 73, 0.15); }
+  .sidebar-item:hover .delete-btn { display: block; }
   .sidebar-section { padding: 12px 16px 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
   #sidebar-footer { border-top: 1px solid var(--border); padding: 8px 0; }
 
@@ -346,8 +350,21 @@ async function checkServiceStatus() {
 function renderSidebar() {
   const list = document.getElementById('project-list');
   list.innerHTML = state.projects.map(p =>
-    `<a href="#/project/${encodeURIComponent(p.name)}" class="sidebar-item" data-project="${esc(p.name)}">${esc(p.displayName)}</a>`
+    `<a href="#/project/${encodeURIComponent(p.name)}" class="sidebar-item" data-project="${esc(p.name)}"><span class="project-name">${esc(p.displayName)}</span><button class="delete-btn" data-delete="${esc(p.name)}" title="Delete project">&times;</button></a>`
   ).join('');
+  list.querySelectorAll('.delete-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const name = btn.dataset.delete;
+      const display = state.projects.find(p => p.name === name)?.displayName || name;
+      if (!confirm(`Delete project "${display}"?\n\nThis removes all memory data (log, summary, entities, remembered items) for this project. This cannot be undone.`)) return;
+      await fetch(`/api/projects/${encodeURIComponent(name)}`, { method: 'DELETE' });
+      if (state.currentProject === name) { state.currentProject = null; state.projectData = null; }
+      await loadProjects();
+      if (!state.currentProject) document.getElementById('content').innerHTML = '<div class="empty">Select a project from the sidebar</div>';
+    });
+  });
   updateSidebarActive();
 }
 
