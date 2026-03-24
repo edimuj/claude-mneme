@@ -81,6 +81,18 @@ function readTextSafe(path, fallback = '') {
   } catch { return fallback; }
 }
 
+function getLatestArchivedBriefing(projectDir) {
+  const archiveDir = join(projectDir, 'briefing-archive');
+  try {
+    if (!existsSync(archiveDir)) return null;
+    const files = readdirSync(archiveDir).filter(f => f.endsWith('.json')).sort();
+    if (files.length === 0) return null;
+    const latest = readJsonSafe(join(archiveDir, files[files.length - 1]));
+    if (latest) latest._archived = true;
+    return latest;
+  } catch { return null; }
+}
+
 function displayName(dirName) {
   // Home directory: -home-username or -Users-username (no deeper path)
   const homePath = homedir().replace(/^\//, '-').replace(/\//g, '-');
@@ -146,13 +158,26 @@ function getProjects() {
       const full = join(PROJECTS_DIR, name);
       return statSync(full).isDirectory();
     })
-    .map(name => ({
-      name,
-      displayName: displayName(name),
-      hasLog: existsSync(join(PROJECTS_DIR, name, 'log.jsonl')),
-      hasSummary: existsSync(join(PROJECTS_DIR, name, 'summary.json')),
-      hasEntities: existsSync(join(PROJECTS_DIR, name, 'entities.json')),
-    }))
+    .map(name => {
+      const logPath = join(PROJECTS_DIR, name, 'log.jsonl');
+      const handoffPath = join(PROJECTS_DIR, name, 'handoff.json');
+      let lastActivity = null;
+      // Use most recent mtime of log.jsonl or handoff.json as activity proxy
+      for (const p of [logPath, handoffPath]) {
+        try {
+          const mt = statSync(p).mtime.toISOString();
+          if (!lastActivity || mt > lastActivity) lastActivity = mt;
+        } catch {}
+      }
+      return {
+        name,
+        displayName: displayName(name),
+        hasLog: existsSync(logPath),
+        hasSummary: existsSync(join(PROJECTS_DIR, name, 'summary.json')),
+        hasEntities: existsSync(join(PROJECTS_DIR, name, 'entities.json')),
+        lastActivity,
+      };
+    })
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
 }
 
@@ -166,6 +191,7 @@ function getProjectData(name) {
   const entities = readJsonSafe(join(dir, 'entities.json'), {});
   const remembered = readJsonSafe(join(dir, 'remembered.json'), []);
   const handoff = readJsonSafe(join(dir, 'handoff.json'));
+  const briefing = readJsonSafe(join(dir, 'briefing.json')) ?? getLatestArchivedBriefing(dir);
 
   const logTypes = {};
   for (const entry of log) {
@@ -192,6 +218,7 @@ function getProjectData(name) {
     entities,
     remembered,
     handoff,
+    briefing,
   };
 }
 
@@ -206,6 +233,24 @@ function getErrors() {
     try { entries.push(JSON.parse(line)); } catch { /* skip bad lines */ }
   }
   return entries.slice(-100);
+}
+
+function handleDeleteError(index) {
+  const errorLogPath = join(MEMORY_BASE, 'errors.log');
+  const content = readTextSafe(errorLogPath);
+  if (!content.trim()) throw new Error('Error log is empty');
+  const lines = content.trim().split('\n');
+  // Build map of parsed entries to raw line indices
+  const parsed = [];
+  for (let i = 0; i < lines.length; i++) {
+    try { parsed.push({ entry: JSON.parse(lines[i]), lineIndex: i }); } catch {}
+  }
+  const visible = parsed.slice(-100);
+  if (index < 0 || index >= visible.length) throw new Error(`Index ${index} out of range (${visible.length} entries)`);
+  const removed = visible[index];
+  lines.splice(removed.lineIndex, 1);
+  writeFileSync(errorLogPath, lines.length > 0 ? lines.join('\n') + '\n' : '');
+  return { status: 'ok', removed: removed.entry };
 }
 
 function getConfig() {
@@ -455,8 +500,19 @@ async function handleRequest(req, res) {
     return;
   }
 
-  if (path === '/api/errors') {
+  if (path === '/api/errors' && req.method === 'GET') {
     sendJson(res, getErrors());
+    return;
+  }
+
+  if (path === '/api/errors/delete' && req.method === 'POST') {
+    try {
+      const body = await readBody(req);
+      const result = handleDeleteError(body.index);
+      sendJson(res, result);
+    } catch (err) {
+      sendJson(res, { error: err.message }, 400);
+    }
     return;
   }
 
