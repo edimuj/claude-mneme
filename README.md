@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-3.13.0-blue" alt="Version">
+  <img src="https://img.shields.io/badge/version-3.14.0-blue" alt="Version">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
   <img src="https://img.shields.io/badge/node-%3E%3D18-brightgreen" alt="Node">
   <img src="https://img.shields.io/badge/claude--code-plugin-orange" alt="Claude Code Plugin">
@@ -139,6 +139,28 @@ Summarization normally runs automatically when the log reaches 50 entries.
 /status --clear-errors               # Clear the error log
 ```
 
+## Disabling Mneme
+
+### Per-Session (Environment Variable)
+
+Start Claude Code with `MNEME_DISABLED=1` to completely disable all hooks for that session — nothing gets captured, logged, or summarized.
+
+```bash
+MNEME_DISABLED=1 claude          # private session
+```
+
+Useful for sensitive conversations, one-shot tasks, or ephemeral agents.
+
+### Exclude Patterns (Automatic)
+
+Sessions running in directories matching `excludePatterns` are skipped automatically. Default: `[".ao-worktrees-"]` — so agent-orchestration worktree agents never trigger memory operations.
+
+```json
+{
+  "excludePatterns": [".ao-worktrees-", "/tmp/"]
+}
+```
+
 ## Configuration
 
 Edit `~/.claude-mneme/config.json`:
@@ -208,6 +230,38 @@ Control what gets injected at session start:
 ```
 
 When you work on something, multiple entries are created (prompt, task, commit). Deduplication groups entries within the time window and keeps only the highest-signal one.
+
+</details>
+
+<details>
+<summary><strong>Pre-Compact</strong></summary>
+
+Controls what happens before conversation compaction. LLM-powered key point extraction is opt-in; regex-based extraction (decisions, files, errors, todos) runs by default.
+
+```json
+{
+  "preCompact": {
+    "enabled": true,
+    "cooldownMinutes": 5,
+    "forceSummarize": true,
+    "extraction": {
+      "categories": {
+        "keyPoints": false,
+        "decisions": true,
+        "files": true,
+        "errors": true,
+        "todos": true
+      }
+    }
+  }
+}
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `cooldownMinutes` | `5` | Minimum gap between LLM operations per project |
+| `forceSummarize` | `true` | Run summarization before compact |
+| `extraction.categories.keyPoints` | `false` | LLM-powered key point extraction (opt-in, spawns a Haiku session) |
 
 </details>
 

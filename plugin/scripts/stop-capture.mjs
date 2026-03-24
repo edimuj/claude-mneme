@@ -8,8 +8,10 @@
  */
 
 import { getClient } from '../client/mneme-client.mjs';
-import { logError } from './utils.mjs';
+import { isSessionDisabled, logError } from './utils.mjs';
 import { execFileSync } from 'node:child_process';
+
+if (process.env.MNEME_DISABLED === '1') process.exit(0);
 
 function getProjectRoot(cwd) {
   try {
@@ -30,6 +32,7 @@ process.stdin.on('end', async () => {
   try {
     const hookData = JSON.parse(input);
     const cwd = hookData.cwd || process.cwd();
+    if (isSessionDisabled(cwd)) { process.exit(0); return; }
     const project = getProjectRoot(cwd);
     const client = await getClient();
     await client.captureStop(project, hookData);

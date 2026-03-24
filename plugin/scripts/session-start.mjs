@@ -12,7 +12,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from 'fs';
 import { execFileSync } from 'child_process';
 import { join } from 'path';
-import { ensureMemoryDirs, loadConfig, getProjectName, escapeAttr, formatEntry, formatDecisionLine, renderSummaryToMarkdown, flushPendingLog, scoreEntriesByRelevance, getRelevantEntities, deduplicateEntries, readCachedData, logError, getErrorsSince } from './utils.mjs';
+import { isSessionDisabled, ensureMemoryDirs, loadConfig, getProjectName, escapeAttr, formatEntry, formatDecisionLine, renderSummaryToMarkdown, flushPendingLog, scoreEntriesByRelevance, getRelevantEntities, deduplicateEntries, readCachedData, logError, getErrorsSince } from './utils.mjs';
 import { pullIfEnabled, startHeartbeat } from './sync.mjs';
 import { gatherContextSignals, extractSearchTerms, retrieveRelevantMemory } from '../lib/memory-retriever.mjs';
 
@@ -69,6 +69,8 @@ function renderRetrievalSummary(retrieval, summary, projectName) {
 
 async function main() {
   const cwd = process.cwd();
+  if (isSessionDisabled(cwd)) process.exit(0);
+
   const paths = ensureMemoryDirs(cwd);
   const config = loadConfig();
   const projectName = getProjectName(cwd);

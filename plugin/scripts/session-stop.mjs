@@ -5,7 +5,7 @@
  */
 
 import { pathToFileURL } from 'node:url';
-import { flushPendingLog, maybeSummarize, loadConfig, logError } from './utils.mjs';
+import { isSessionDisabled, flushPendingLog, maybeSummarize, loadConfig, logError } from './utils.mjs';
 import { pushIfEnabled, stopHeartbeat } from './sync.mjs';
 
 const DEFAULT_SUMMARIZE_TIMEOUT_MS = 1500;
@@ -34,6 +34,8 @@ export async function main({
   pushIfEnabledFn = pushIfEnabled,
   logErrorFn = logError
 } = {}) {
+  if (isSessionDisabled(cwd)) return;
+
   const config = loadConfigFn();
 
   // Stop the heartbeat interval

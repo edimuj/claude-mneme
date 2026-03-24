@@ -6,7 +6,9 @@
  * Filters out confirmations and slash commands, captures everything else
  */
 
-import { ensureMemoryDirs, appendLogEntry, logError } from './utils.mjs';
+import { isSessionDisabled, ensureMemoryDirs, appendLogEntry, logError } from './utils.mjs';
+
+if (process.env.MNEME_DISABLED === '1') process.exit(0);
 
 // Read hook input from stdin
 let input = '';
@@ -28,6 +30,8 @@ process.stdin.on('end', async () => {
 
 async function processPrompt(hookData) {
   const { prompt, cwd } = hookData;
+
+  if (isSessionDisabled(cwd)) return;
 
   if (!prompt || typeof prompt !== 'string') {
     process.exit(0);

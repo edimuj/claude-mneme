@@ -4,7 +4,9 @@
  * Captures file modifications (Write, Edit) and commit messages from Bash git commits
  */
 
-import { appendLogEntry, trackEntityOnly, logError } from './utils.mjs';
+import { isSessionDisabled, appendLogEntry, trackEntityOnly, logError } from './utils.mjs';
+
+if (process.env.MNEME_DISABLED === '1') process.exit(0);
 
 // Read hook input from stdin
 let input = '';
@@ -122,6 +124,7 @@ async function processBash(hookData) {
 
 async function processToolUse(hookData) {
   const { tool_name } = hookData;
+  if (isSessionDisabled(hookData.cwd)) { process.exit(0); return; }
 
   if (tool_name === 'Write' || tool_name === 'Edit') {
     await processFileEdit(hookData);

@@ -15,10 +15,12 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, unlink
 import { join, dirname } from 'path';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
-import { ensureDeps, ensureMemoryDirs, loadConfig, getProjectName, flushPendingLog, appendLogEntry, withoutNestedSessionGuard, logError } from './utils.mjs';
+import { isSessionDisabled, ensureDeps, ensureMemoryDirs, loadConfig, getProjectName, flushPendingLog, appendLogEntry, withoutNestedSessionGuard, logError } from './utils.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+
+if (process.env.MNEME_DISABLED === '1') process.exit(0);
 
 // Read hook input from stdin
 let input = '';
@@ -357,6 +359,9 @@ function forceSummarize(cwd) {
 async function processPreCompact(hookData) {
   const { trigger, transcript_path, cwd, custom_instructions } = hookData;
   const workingDir = cwd || process.cwd();
+
+  if (isSessionDisabled(workingDir)) { process.exit(0); return; }
+
   const config = loadConfig();
   const pcConfig = config.preCompact || {};
 
@@ -377,6 +382,22 @@ async function processPreCompact(hookData) {
   const projectName = getProjectName(workingDir);
 
   console.error(`[claude-mneme] PreCompact triggered (${trigger}) for "${projectName}"`);
+
+  // Check LLM cooldown — skip expensive operations if we ran recently
+  const cooldownFile = join(paths.project, '.pre-compact-ts');
+  const cooldownMs = ((pcConfig.cooldownMinutes ?? 5) * 60 * 1000);
+  let skipLlm = false;
+
+  if (existsSync(cooldownFile)) {
+    try {
+      const lastTs = parseInt(readFileSync(cooldownFile, 'utf-8'), 10);
+      if (Date.now() - lastTs < cooldownMs) {
+        const remainSec = Math.round((cooldownMs - (Date.now() - lastTs)) / 1000);
+        console.error(`[claude-mneme] Skipping LLM extraction (cooldown, ${remainSec}s remaining)`);
+        skipLlm = true;
+      }
+    } catch { /* ignore corrupt file */ }
+  }
 
   // 1. Flush pending log entries
   if (pcConfig.flushPending !== false) {
@@ -437,7 +458,7 @@ async function processPreCompact(hookData) {
       }
     }
 
-    if (categories.keyPoints !== false) {
+    if (categories.keyPoints === true && !skipLlm) {
       const keyPoints = await extractKeyPoints(transcript, config, maxItems);
       if (keyPoints.length > 0) {
         extracted.keyPoints = keyPoints;
@@ -485,10 +506,13 @@ async function processPreCompact(hookData) {
     }
   }
 
-  // 5. Force summarization if enabled
-  if (pcConfig.forceSummarize !== false) {
+  // 5. Force summarization if enabled (skip during cooldown)
+  if (pcConfig.forceSummarize !== false && !skipLlm) {
     console.error(`[claude-mneme] Forcing summarization before compact...`);
     await forceSummarize(workingDir);
+
+    // Record cooldown timestamp
+    try { writeFileSync(cooldownFile, Date.now().toString()); } catch { /* non-critical */ }
   }
 
   console.error(`[claude-mneme] PreCompact processing complete`);

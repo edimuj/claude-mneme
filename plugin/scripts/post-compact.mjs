@@ -10,7 +10,9 @@
 
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
-import { ensureMemoryDirs, loadConfig, getProjectName, escapeAttr } from './utils.mjs';
+import { isSessionDisabled, ensureMemoryDirs, loadConfig, getProjectName, escapeAttr } from './utils.mjs';
+
+if (isSessionDisabled(process.cwd())) process.exit(0);
 
 const cwd = process.cwd();
 const paths = ensureMemoryDirs(cwd);

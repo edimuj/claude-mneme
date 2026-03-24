@@ -36,6 +36,27 @@ import { getLogFileState, updateLogMetadataAfterAppend } from '../lib/log-metada
 export const MEMORY_BASE = join(homedir(), '.claude-mneme');
 export const CONFIG_FILE = join(MEMORY_BASE, 'config.json');
 
+const DEFAULT_EXCLUDE_PATTERNS = ['.ao-worktrees-'];
+
+/**
+ * Check if mneme should skip this session entirely.
+ * Returns a reason string if disabled, false otherwise.
+ *
+ * Checks (in order):
+ * 1. MNEME_DISABLED=1 env var (user opt-out, privacy, ephemeral agents)
+ * 2. cwd matches an excludePatterns entry from config (auto-skip worktrees etc.)
+ */
+export function isSessionDisabled(cwd) {
+  if (process.env.MNEME_DISABLED === '1') return 'env';
+  if (!cwd) return false;
+
+  const config = loadConfig();
+  const patterns = config.excludePatterns || DEFAULT_EXCLUDE_PATTERNS;
+  if (patterns.some(p => cwd.includes(p))) return 'excluded-path';
+
+  return false;
+}
+
 /**
  * Escape a string for use inside an XML/HTML attribute value.
  */
