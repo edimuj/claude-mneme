@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 // Import the functions under test — some are not exported, so we test
 // the exported wrappers that exercise them.
 import { mkdirSync, writeFileSync, readFileSync, existsSync, mkdtempSync, rmSync, appendFileSync } from 'fs';
+import { execFileSync } from 'child_process';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { before, after } from 'node:test';
@@ -1523,9 +1524,9 @@ describe('getProjectRoot', () => {
   });
 
   it('returns git root when inside a git repo', () => {
-    // We're running from inside the claude-mneme repo
     const root = getProjectRoot();
-    assert.ok(root.endsWith('claude-mneme'), `Expected git root ending in claude-mneme, got ${root}`);
+    const expected = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
+    assert.equal(root, expected);
   });
 
   it('returns cwd for non-git directories', () => {
@@ -1546,7 +1547,9 @@ describe('getProjectRoot', () => {
 describe('getProjectName', () => {
   it('returns basename of git root', () => {
     const name = getProjectName();
-    assert.equal(name, 'claude-mneme');
+    // Use basename of git toplevel so the test works in worktrees too
+    const expected = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim().split('/').pop();
+    assert.equal(name, expected);
   });
 });
 
