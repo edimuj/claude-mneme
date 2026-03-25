@@ -25,21 +25,24 @@ import {
 import { getLogFileState, writeLogMetadata } from '../lib/log-metadata.mjs';
 
 import { homedir } from 'os';
-import { join, basename } from 'path';
+import { join, basename, resolve } from 'path';
+import { fileURLToPath } from 'url';
 
 const MEMORY_BASE = join(homedir(), '.claude-mneme');
+const __summarize_filename = fileURLToPath(import.meta.url);
+const _isDirectRun = process.argv[1] && resolve(process.argv[1]) === resolve(__summarize_filename);
 
-const cwd = process.argv[2] || process.cwd();
-const migrateOnly = process.argv.includes('--migrate');
+// Module-level state — only computed when run directly
+let cwd, migrateOnly, isMemoryDir, paths, config, projectName;
 
-// When called by the server, cwd is already the project memory dir
-// (e.g. ~/.claude-mneme/projects/-home-edimuj-projects-foo).
-// Do NOT re-derive through ensureMemoryDirs — that triggers migration
-// logic which renames the correct directory to a double-nested path.
-const isMemoryDir = cwd.startsWith(join(MEMORY_BASE, 'projects'));
-const paths = isMemoryDir ? buildPaths(cwd) : ensureMemoryDirs(cwd);
-const config = loadConfig();
-const projectName = isMemoryDir ? basename(cwd) : getProjectName(cwd);
+if (_isDirectRun) {
+  cwd = process.argv[2] || process.cwd();
+  migrateOnly = process.argv.includes('--migrate');
+  isMemoryDir = cwd.startsWith(join(MEMORY_BASE, 'projects'));
+  paths = isMemoryDir ? buildPaths(cwd) : ensureMemoryDirs(cwd);
+  config = loadConfig();
+  projectName = isMemoryDir ? basename(cwd) : getProjectName(cwd);
+}
 
 function buildPaths(projectDir) {
   return {
@@ -399,94 +402,96 @@ function applyUpdates(existing, updates) {
   return result;
 }
 
-// ============ Main execution ============
+// Export pure functions for testing
+export { buildPaths, applyUpdates };
 
-// Handle migration mode
-if (migrateOnly) {
-  const migrated = await migrateMarkdownSummary();
-  if (migrated) {
-    writeFileSync(paths.summaryJson, JSON.stringify(migrated, null, 2) + '\n');
-    console.error(`[claude-mneme] Migration complete. Created summary.json for "${projectName}".`);
-    console.error('[claude-mneme] You can delete summary.md if the migration looks correct.');
-  }
-  process.exit(0);
-}
+// ============ Main execution — only when run directly ============
 
-// Check if log exists and has entries
-if (!existsSync(paths.log)) {
-  process.exit(0);
-}
-
-const logContent = readFileSync(paths.log, 'utf-8').trim();
-if (!logContent) {
-  process.exit(0);
-}
-
-const lines = logContent.split('\n').filter(l => l);
-const entryCount = lines.length;
-
-// Check if we need to summarize
-if (entryCount < config.maxLogEntriesBeforeSummarize) {
-  process.exit(0);
-}
-
-// Lock file for concurrency control.
-// When spawned by maybeSummarize(), the lock already exists (it created it).
-// When called directly (pre-compact, manual), we create it here.
-// Either way, refresh the timestamp and clean up in the finally block.
-const lockFile = paths.log + '.lock';
-writeFileSync(lockFile, Date.now().toString());
-
-try {
-  // Check if we need to migrate first
-  let existingSummary = readStructuredSummary();
-  if (!existingSummary.lastUpdated && existsSync(paths.summary)) {
-    console.error(`[claude-mneme] Migrating existing summary.md to JSON format...`);
+if (_isDirectRun) {
+  // Handle migration mode
+  if (migrateOnly) {
     const migrated = await migrateMarkdownSummary();
     if (migrated) {
-      existingSummary = migrated;
-      writeFileSync(paths.summaryJson, JSON.stringify(existingSummary, null, 2) + '\n');
+      writeFileSync(paths.summaryJson, JSON.stringify(migrated, null, 2) + '\n');
+      console.error(`[claude-mneme] Migration complete. Created summary.json for "${projectName}".`);
+      console.error('[claude-mneme] You can delete summary.md if the migration looks correct.');
     }
-  }
-
-  // Calculate entries to summarize vs keep
-  const summarizeCount = entryCount - config.keepRecentEntries;
-  if (summarizeCount <= 0) {
     process.exit(0);
   }
 
-  const entriesToSummarize = lines.slice(0, summarizeCount);
-  const entriesToKeep = lines.slice(summarizeCount);
-
-  console.error(`[claude-mneme] Incrementally summarizing ${entriesToSummarize.length} entries for "${projectName}"...`);
-
-  // Run incremental summarization
-  const updates = await incrementalSummarize(existingSummary, entriesToSummarize);
-
-  if (updates) {
-    const newSummary = applyUpdates(existingSummary, updates);
-    writeFileSync(paths.summaryJson, JSON.stringify(newSummary, null, 2) + '\n');
-
-    // Re-read the log under write lock to prevent flushPendingLog from
-    // appending between our read and write (which would silently lose entries).
-    const logWriteLock = paths.log + '.wlock';
-    const truncateResult = withFileLock(logWriteLock, () => {
-      const currentLogContent = readFileSync(paths.log, 'utf-8').trim();
-      const currentLines = currentLogContent ? currentLogContent.split('\n').filter(l => l) : [];
-      const remainingLines = currentLines.slice(summarizeCount);
-      writeFileSync(paths.log, remainingLines.join('\n') + (remainingLines.length ? '\n' : ''));
-      writeLogMetadata(paths.log, remainingLines.length, getLogFileState(paths.log), (err, context) => logError(err, `summarize:${context}`));
-      return remainingLines.length;
-    }, 30);
-
-    const keptCount = truncateResult ?? 0;
-    console.error(`[claude-mneme] Summary updated. Kept ${keptCount} entries (${keptCount - entriesToKeep.length} arrived during summarization).`);
-  } else {
-    console.error('[claude-mneme] Summarization returned no updates, keeping log intact.');
+  // Check if log exists and has entries
+  if (!existsSync(paths.log)) {
+    process.exit(0);
   }
 
-} finally {
-  try { unlinkSync(lockFile); } catch {}
-}
+  const logContent = readFileSync(paths.log, 'utf-8').trim();
+  if (!logContent) {
+    process.exit(0);
+  }
 
-process.exit(0);
+  const lines = logContent.split('\n').filter(l => l);
+  const entryCount = lines.length;
+
+  // Check if we need to summarize
+  if (entryCount < config.maxLogEntriesBeforeSummarize) {
+    process.exit(0);
+  }
+
+  // Lock file for concurrency control.
+  const lockFile = paths.log + '.lock';
+  writeFileSync(lockFile, Date.now().toString());
+
+  try {
+    // Check if we need to migrate first
+    let existingSummary = readStructuredSummary();
+    if (!existingSummary.lastUpdated && existsSync(paths.summary)) {
+      console.error(`[claude-mneme] Migrating existing summary.md to JSON format...`);
+      const migrated = await migrateMarkdownSummary();
+      if (migrated) {
+        existingSummary = migrated;
+        writeFileSync(paths.summaryJson, JSON.stringify(existingSummary, null, 2) + '\n');
+      }
+    }
+
+    // Calculate entries to summarize vs keep
+    const summarizeCount = entryCount - config.keepRecentEntries;
+    if (summarizeCount <= 0) {
+      process.exit(0);
+    }
+
+    const entriesToSummarize = lines.slice(0, summarizeCount);
+    const entriesToKeep = lines.slice(summarizeCount);
+
+    console.error(`[claude-mneme] Incrementally summarizing ${entriesToSummarize.length} entries for "${projectName}"...`);
+
+    // Run incremental summarization
+    const updates = await incrementalSummarize(existingSummary, entriesToSummarize);
+
+    if (updates) {
+      const newSummary = applyUpdates(existingSummary, updates);
+      writeFileSync(paths.summaryJson, JSON.stringify(newSummary, null, 2) + '\n');
+
+      // Re-read the log under write lock to prevent flushPendingLog from
+      // appending between our read and write (which would silently lose entries).
+      const logWriteLock = paths.log + '.wlock';
+      const truncateResult = withFileLock(logWriteLock, () => {
+        const currentLogContent = readFileSync(paths.log, 'utf-8').trim();
+        const currentLines = currentLogContent ? currentLogContent.split('\n').filter(l => l) : [];
+        const remainingLines = currentLines.slice(summarizeCount);
+        writeFileSync(paths.log, remainingLines.join('\n') + (remainingLines.length ? '\n' : ''));
+        writeLogMetadata(paths.log, remainingLines.length, getLogFileState(paths.log), (err, context) => logError(err, `summarize:${context}`));
+        return remainingLines.length;
+      }, 30);
+
+      const keptCount = truncateResult ?? 0;
+      console.error(`[claude-mneme] Summary updated. Kept ${keptCount} entries (${keptCount - entriesToKeep.length} arrived during summarization).`);
+    } else {
+      console.error('[claude-mneme] Summarization returned no updates, keeping log intact.');
+    }
+
+  } finally {
+    try { unlinkSync(lockFile); } catch {}
+  }
+
+  process.exit(0);
+}
