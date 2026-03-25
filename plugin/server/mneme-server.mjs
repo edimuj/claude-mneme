@@ -6,11 +6,11 @@
  * Handles log batching, summarization throttling, entity extraction, and caching.
  */
 
-import { createServer } from 'http';
-import { existsSync, writeFileSync, unlinkSync, readFileSync, appendFileSync, mkdirSync } from 'fs';
-import { join } from 'path';
-import { fileURLToPath } from 'url';
-import { homedir } from 'os';
+import { createServer } from 'node:http';
+import { existsSync, writeFileSync, unlinkSync, readFileSync, appendFileSync, mkdirSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { homedir } from 'node:os';
 import { LogService } from './log-service.mjs';
 import { SummarizationService } from './summarization-service.mjs';
 import { EntityService } from './entity-service.mjs';
@@ -574,14 +574,19 @@ function setupShutdownHandlers(server) {
   process.on('SIGHUP', shutdown);
 }
 
-// Main
+export { MnemeServer, Logger };
+
+// Main — only run when executed directly (not imported for testing)
 async function main() {
   const server = new MnemeServer();
   setupShutdownHandlers(server);
   await server.start();
 }
 
-main().catch(err => {
-  console.error('[mneme-server] Fatal error:', err);
-  process.exit(1);
-});
+const isDirectRun = process.argv[1] && resolve(fileURLToPath(import.meta.url)) === resolve(process.argv[1]);
+if (isDirectRun) {
+  main().catch(err => {
+    console.error('[mneme-server] Fatal error:', err);
+    process.exit(1);
+  });
+}
