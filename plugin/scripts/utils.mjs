@@ -70,11 +70,26 @@ export function escapeAttr(str) {
  */
 export function getProjectRoot(cwd = process.cwd()) {
   try {
-    return execFileSync('git', ['rev-parse', '--show-toplevel'], {
-      encoding: 'utf8',
-      cwd,
-      stdio: ['ignore', 'pipe', 'ignore']
+    const toplevel = execFileSync('git', ['rev-parse', '--show-toplevel'], {
+      encoding: 'utf8', cwd, stdio: ['ignore', 'pipe', 'ignore']
     }).trim();
+
+    // Resolve worktrees to main repo — all memory goes to one project.
+    // --git-common-dir returns: relative path (e.g. ".git", "../.git") in main repo,
+    // absolute path (e.g. "/path/to/main-repo/.git") in a worktree.
+    const gitCommonDir = execFileSync('git', ['rev-parse', '--git-common-dir'], {
+      encoding: 'utf8', cwd, stdio: ['ignore', 'pipe', 'ignore']
+    }).trim();
+
+    // Resolve to absolute — gitCommonDir is relative in main repo, absolute in worktrees
+    const resolvedGitDir = gitCommonDir.startsWith('/') ? gitCommonDir : join(cwd, gitCommonDir);
+    const mainGitDir = join(toplevel, '.git');
+    if (resolvedGitDir !== mainGitDir && !resolvedGitDir.startsWith(mainGitDir + '/')) {
+      // .git dir is outside toplevel → we're in a worktree. Main repo is parent of .git
+      return dirname(resolvedGitDir);
+    }
+
+    return toplevel;
   } catch {
     return cwd;
   }

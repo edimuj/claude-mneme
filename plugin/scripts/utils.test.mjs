@@ -1538,6 +1538,22 @@ describe('getProjectRoot', () => {
       rmSync(tmp, { recursive: true, force: true });
     }
   });
+
+  it('resolves git worktrees to main repo root', () => {
+    // Create a worktree, verify getProjectRoot points back to main repo
+    const mainRoot = getProjectRoot();
+    const wtPath = join(tmpdir(), 'mneme-wt-test-' + Date.now());
+    try {
+      execFileSync('git', ['worktree', 'add', wtPath, '-b', 'test/wt-getroot'], {
+        encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore']
+      });
+      const resolved = getProjectRoot(wtPath);
+      assert.equal(resolved, mainRoot, `Worktree should resolve to main repo, got ${resolved}`);
+    } finally {
+      try { execFileSync('git', ['worktree', 'remove', wtPath], { stdio: 'ignore' }); } catch {}
+      try { execFileSync('git', ['branch', '-D', 'test/wt-getroot'], { stdio: 'ignore' }); } catch {}
+    }
+  });
 });
 
 // ============================================================================
