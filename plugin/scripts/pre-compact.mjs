@@ -12,7 +12,7 @@
  */
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, unlinkSync } from 'fs';
-import { join, dirname } from 'path';
+import { join, dirname, resolve } from 'path';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { isSessionDisabled, ensureDeps, ensureMemoryDirs, loadConfig, getProjectName, flushPendingLog, appendLogEntry, withoutNestedSessionGuard, logError } from './utils.mjs';
@@ -20,21 +20,24 @@ import { isSessionDisabled, ensureDeps, ensureMemoryDirs, loadConfig, getProject
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-if (process.env.MNEME_DISABLED === '1') process.exit(0);
+const _isDirectRun = process.argv[1] && resolve(process.argv[1]) === resolve(__filename);
 
-// Read hook input from stdin
-let input = '';
-process.stdin.setEncoding('utf8');
-process.stdin.on('data', chunk => input += chunk);
-process.stdin.on('end', async () => {
-  try {
-    const hookData = JSON.parse(input);
-    await processPreCompact(hookData);
-  } catch (e) {
-    console.error(`[claude-mneme] PreCompact error: ${e.message}`);
-    process.exit(0);
-  }
-});
+if (_isDirectRun) {
+  if (process.env.MNEME_DISABLED === '1') process.exit(0);
+
+  let input = '';
+  process.stdin.setEncoding('utf8');
+  process.stdin.on('data', chunk => input += chunk);
+  process.stdin.on('end', async () => {
+    try {
+      const hookData = JSON.parse(input);
+      await processPreCompact(hookData);
+    } catch (e) {
+      console.error(`[claude-mneme] PreCompact error: ${e.message}`);
+      process.exit(0);
+    }
+  });
+}
 
 /**
  * Read and parse transcript from file path
@@ -519,5 +522,10 @@ async function processPreCompact(hookData) {
   process.exit(0);
 }
 
-// Timeout fallback
-setTimeout(() => process.exit(0), 120000);
+// Timeout fallback — only when running as a hook
+if (_isDirectRun) {
+  setTimeout(() => process.exit(0), 120000);
+}
+
+// Export pure functions for testing
+export { readTranscript, extractText, extractDecisions, extractFiles, extractErrors, extractTodos, saveSnapshot };
