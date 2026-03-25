@@ -153,7 +153,7 @@ export function withFileLock(lockPath, fn, staleSec = 10) {
     if (e.code !== 'EEXIST') throw e;
     // Lock exists — check if stale
     try {
-      if (Date.now() - statSync(lockPath).mtimeMs > staleSec * 1000) {
+      if (Date.now() - statSync(lockPath).mtimeMs >= staleSec * 1000) {
         unlinkSync(lockPath);
         // Retry once
         const fd = openSync(lockPath, fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_WRONLY);
