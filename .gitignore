@@ -30,3 +30,4 @@ CLAUDE.md
 # Nightshift plan artifacts (keep out of version control)
 .nightshift-plan
 share/
+.claude

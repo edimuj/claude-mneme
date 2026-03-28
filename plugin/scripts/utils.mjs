@@ -2,7 +2,7 @@
  * Shared utilities for claude-mneme plugin
  */
 
-import { existsSync, mkdirSync, readFileSync, appendFileSync, writeFileSync, statSync, unlinkSync, renameSync, openSync, closeSync, writeSync, readSync, constants as fsConstants } from 'fs';
+import { existsSync, mkdirSync, readFileSync, appendFileSync, writeFileSync, statSync, unlinkSync, renameSync, openSync, closeSync, writeSync, readSync, accessSync, constants as fsConstants } from 'fs';
 import { execFileSync, spawn } from 'child_process';
 import { homedir } from 'os';
 import { join, basename, dirname } from 'path';
@@ -614,16 +614,29 @@ export function loadConfig() {
   // Resolve claudePath to absolute path if it's a bare command name.
   // The claude-agent-sdk requires an absolute path, not a PATH lookup.
   if (config.claudePath && !config.claudePath.startsWith('/')) {
+    let resolved;
     try {
-      const resolved = execFileSync('which', [config.claudePath], {
+      resolved = execFileSync('which', [config.claudePath], {
         encoding: 'utf-8',
         stdio: ['ignore', 'pipe', 'ignore']
       }).trim();
-      if (resolved) {
-        config.claudePath = resolved;
-      }
     } catch {
-      // 'which' failed — keep original value, will fail later with a clear error
+      // 'which' failed — try common install locations (dashboard/systemd may lack user PATH)
+      const candidates = [
+        join(homedir(), '.local', 'bin', config.claudePath),
+        join('/usr', 'local', 'bin', config.claudePath),
+        join('/usr', 'bin', config.claudePath),
+      ];
+      for (const candidate of candidates) {
+        try {
+          accessSync(candidate, fsConstants.X_OK);
+          resolved = candidate;
+          break;
+        } catch { /* not found or not executable */ }
+      }
+    }
+    if (resolved) {
+      config.claudePath = resolved;
     }
   }
 
