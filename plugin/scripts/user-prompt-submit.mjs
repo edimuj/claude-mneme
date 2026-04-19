@@ -6,7 +6,8 @@
  * Filters out confirmations and slash commands, captures everything else
  */
 
-import { isSessionDisabled, ensureMemoryDirs, appendLogEntry, logError } from './utils.mjs';
+import { isSessionDisabled, ensureMemoryDirs, appendLogEntry } from './utils.mjs';
+import { logError } from '../lib/error-log.mjs';
 
 if (process.env.MNEME_DISABLED === '1') process.exit(0);
 

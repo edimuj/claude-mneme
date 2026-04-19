@@ -5,13 +5,14 @@
  * All operations fail gracefully to local-only mode.
  */
 
-import { existsSync, readFileSync, writeFileSync, statSync } from 'fs';
-import { join } from 'path';
-import { hostname } from 'os';
-import { randomUUID } from 'crypto';
-import http from 'http';
-import https from 'https';
-import { ensureMemoryDirs, getProjectRoot, logError } from './utils.mjs';
+import { existsSync, readFileSync, writeFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+import { hostname } from 'node:os';
+import { randomUUID } from 'node:crypto';
+import http from 'node:http';
+import https from 'node:https';
+import { ensureMemoryDirs, getProjectRoot } from './utils.mjs';
+import { logError } from '../lib/error-log.mjs';
 
 // ============================================================================
 // Client ID Management

@@ -13,22 +13,21 @@
  *   --project-dir   Use memory dir directly (bypasses cwd-based resolution)
  */
 
-import { readFileSync, writeFileSync, existsSync, unlinkSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, unlinkSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { homedir } from 'node:os';
 import { pathToFileURL } from 'node:url';
+import { formatEntriesForSummary, emptyStructuredSummary } from '../lib/summary-format.mjs';
+import { logError } from '../lib/error-log.mjs';
 import {
   ensureDeps,
   ensureMemoryDirs,
   loadConfig,
   getProjectName,
-  formatEntriesForSummary,
-  emptyStructuredSummary,
   deduplicateEntries,
   flushPendingLog,
   withoutNestedSessionGuard,
-  withFileLock,
-  logError
+  withFileLock
 } from './utils.mjs';
 import { getLogFileState, writeLogMetadata } from '../lib/log-metadata.mjs';
 

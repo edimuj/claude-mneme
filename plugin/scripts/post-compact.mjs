@@ -8,8 +8,8 @@
  * Configurable via ~/.claude-mneme/config.json under "postCompact"
  */
 
-import { readFileSync, existsSync } from 'fs';
-import { join } from 'path';
+import { readFileSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { isSessionDisabled, ensureMemoryDirs, loadConfig, getProjectName, escapeAttr } from './utils.mjs';
 
 if (isSessionDisabled(process.cwd())) process.exit(0);

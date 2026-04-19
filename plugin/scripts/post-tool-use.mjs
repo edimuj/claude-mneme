@@ -4,7 +4,8 @@
  * Captures file modifications (Write, Edit) and commit messages from Bash git commits
  */
 
-import { isSessionDisabled, appendLogEntry, trackEntityOnly, logError } from './utils.mjs';
+import { isSessionDisabled, appendLogEntry, trackEntityOnly } from './utils.mjs';
+import { logError } from '../lib/error-log.mjs';
 
 if (process.env.MNEME_DISABLED === '1') process.exit(0);
 

@@ -8,9 +8,9 @@
  * Users must manually remove entries they no longer need.
  */
 
-import { readFileSync, writeFileSync } from 'fs';
-import { existsSync } from 'fs';
-import { ensureMemoryDirs, getProjectName, invalidateCache, withFileLock, logError } from './utils.mjs';
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { ensureMemoryDirs, getProjectName, invalidateCache, withFileLock } from './utils.mjs';
+import { logError } from '../lib/error-log.mjs';
 
 const cwd = process.cwd();
 const paths = ensureMemoryDirs(cwd);

@@ -6,7 +6,8 @@
  */
 
 import { writeFileSync } from 'node:fs';
-import { ensureMemoryDirs, getProjectName, invalidateCache, logError } from './utils.mjs';
+import { ensureMemoryDirs, getProjectName, invalidateCache } from './utils.mjs';
+import { logError } from '../lib/error-log.mjs';
 
 const cwd = process.cwd();
 const paths = ensureMemoryDirs(cwd);
