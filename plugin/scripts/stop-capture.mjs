@@ -8,7 +8,8 @@
  */
 
 import { getClient } from '../client/mneme-client.mjs';
-import { isSessionDisabled, logError } from './utils.mjs';
+import { isSessionDisabled } from './utils.mjs';
+import { logError } from '../lib/error-log.mjs';
 import { execFileSync } from 'node:child_process';
 
 if (process.env.MNEME_DISABLED === '1') process.exit(0);

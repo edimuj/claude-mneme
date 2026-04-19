@@ -12,18 +12,15 @@
  * Usage: node mem-status.mjs [--clear-errors]
  */
 
-import { existsSync, readFileSync, statSync, accessSync, constants } from 'fs';
-import { execFileSync } from 'child_process';
+import { existsSync, readFileSync, statSync, accessSync, constants } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { getRecentErrors, getErrorsSince, clearErrorLog, getErrorLogPath } from '../lib/error-log.mjs';
 import {
   MEMORY_BASE,
   CONFIG_FILE,
   ensureMemoryDirs,
   loadConfig,
-  getProjectName,
-  getRecentErrors,
-  getErrorsSince,
-  clearErrorLog,
-  getErrorLogPath
+  getProjectName
 } from './utils.mjs';
 
 const cwd = process.cwd();

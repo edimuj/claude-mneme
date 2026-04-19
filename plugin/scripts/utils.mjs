@@ -2,11 +2,11 @@
  * Shared utilities for claude-mneme plugin
  */
 
-import { existsSync, mkdirSync, readFileSync, appendFileSync, writeFileSync, statSync, unlinkSync, renameSync, openSync, closeSync, writeSync, readSync, accessSync, constants as fsConstants } from 'fs';
-import { execFileSync, spawn } from 'child_process';
-import { homedir } from 'os';
-import { join, basename, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { existsSync, mkdirSync, readFileSync, appendFileSync, writeFileSync, statSync, unlinkSync, renameSync, openSync, closeSync, writeSync, readSync, accessSync, constants as fsConstants } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { homedir } from 'node:os';
+import { join, basename, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // Re-export entity functions from shared module (used by both hooks and server)
 export {

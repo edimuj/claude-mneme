@@ -5,7 +5,8 @@
  */
 
 import { pathToFileURL } from 'node:url';
-import { isSessionDisabled, flushPendingLog, maybeSummarize, loadConfig, logError } from './utils.mjs';
+import { isSessionDisabled, flushPendingLog, maybeSummarize, loadConfig } from './utils.mjs';
+import { logError } from '../lib/error-log.mjs';
 import { pushIfEnabled, stopHeartbeat } from './sync.mjs';
 
 const DEFAULT_SUMMARIZE_TIMEOUT_MS = 1500;

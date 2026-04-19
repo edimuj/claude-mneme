@@ -11,11 +11,12 @@
  * All behavior is configurable via ~/.claude-mneme/config.json under "preCompact"
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, unlinkSync } from 'fs';
-import { join, dirname, resolve } from 'path';
-import { spawn } from 'child_process';
-import { fileURLToPath } from 'url';
-import { isSessionDisabled, ensureDeps, ensureMemoryDirs, loadConfig, getProjectName, flushPendingLog, appendLogEntry, withoutNestedSessionGuard, logError } from './utils.mjs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, unlinkSync } from 'node:fs';
+import { join, dirname, resolve } from 'node:path';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { isSessionDisabled, ensureDeps, ensureMemoryDirs, loadConfig, getProjectName, flushPendingLog, appendLogEntry, withoutNestedSessionGuard } from './utils.mjs';
+import { logError } from '../lib/error-log.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);

@@ -9,10 +9,12 @@
  * - LOW priority: Recent log entries (limited to last few)
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from 'fs';
-import { execFileSync } from 'child_process';
-import { join } from 'path';
-import { isSessionDisabled, ensureMemoryDirs, loadConfig, getProjectName, escapeAttr, formatEntry, formatDecisionLine, renderSummaryToMarkdown, flushPendingLog, scoreEntriesByRelevance, getRelevantEntities, deduplicateEntries, readCachedData, logError, getErrorsSince } from './utils.mjs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { join } from 'node:path';
+import { formatEntry, formatDecisionLine, renderSummaryToMarkdown } from '../lib/summary-format.mjs';
+import { logError, getErrorsSince } from '../lib/error-log.mjs';
+import { isSessionDisabled, ensureMemoryDirs, loadConfig, getProjectName, escapeAttr, flushPendingLog, scoreEntriesByRelevance, getRelevantEntities, deduplicateEntries, readCachedData } from './utils.mjs';
 import { pullIfEnabled, startHeartbeat } from './sync.mjs';
 import { gatherContextSignals, extractSearchTerms, retrieveRelevantMemory } from '../lib/memory-retriever.mjs';
 

@@ -10,7 +10,8 @@
 
 import { statSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { stripMarkdown, extractiveSummarize, loadConfig } from '../scripts/utils.mjs';
+import { stripMarkdown, extractiveSummarize } from '../lib/text.mjs';
+import { loadConfig } from '../scripts/utils.mjs';
 
 const STABILITY_POLL_MS = 200;
 const STABILITY_TIMEOUT_MS = 8000;

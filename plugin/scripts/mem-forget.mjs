@@ -8,7 +8,7 @@
  *   node mem-forget.mjs --match "description"     AI-assisted matching
  */
 
-import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { ensureDeps, ensureMemoryDirs, loadConfig, getProjectName, invalidateCache, withFileLock } from './utils.mjs';
 
 const cwd = process.cwd();

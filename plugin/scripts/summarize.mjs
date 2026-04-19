@@ -9,24 +9,22 @@
  * Only new entries are sent to Haiku, not the entire summary.
  */
 
-import { readFileSync, writeFileSync, existsSync, unlinkSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, unlinkSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join, basename, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { formatEntriesForSummary, emptyStructuredSummary } from '../lib/summary-format.mjs';
+import { logError } from '../lib/error-log.mjs';
 import {
   ensureDeps,
   ensureMemoryDirs,
   loadConfig,
   getProjectName,
-  formatEntriesForSummary,
-  emptyStructuredSummary,
   deduplicateEntries,
   withFileLock,
-  withoutNestedSessionGuard,
-  logError
+  withoutNestedSessionGuard
 } from './utils.mjs';
 import { getLogFileState, writeLogMetadata } from '../lib/log-metadata.mjs';
-
-import { homedir } from 'os';
-import { join, basename, resolve } from 'path';
-import { fileURLToPath } from 'url';
 
 const MEMORY_BASE = join(homedir(), '.claude-mneme');
 const __summarize_filename = fileURLToPath(import.meta.url);
