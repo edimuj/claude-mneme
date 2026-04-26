@@ -117,11 +117,11 @@ mv ~/.claude-mneme.backup-YYYYMMDD ~/.claude-mneme
 
 ### Documentation
 
-- [Server Architecture](docs/server-architecture.md) - Full technical design
-- [Deployment Guide](docs/DEPLOYMENT.md) - Step-by-step deployment
-- [Phase 1 Complete](docs/server-phase1-complete.md) - Core server implementation
-- [Phase 2 Complete](docs/server-phase2-complete.md) - Log service implementation
-- [Phase 3 Complete](docs/server-phase3-complete.md) - Summarization service implementation
+- [Server Architecture](.dev/server-architecture.md) - Full technical design
+- [Deployment Guide](.dev/DEPLOYMENT.md) - Step-by-step deployment
+- [Phase 1 Complete](.dev/server-phase1-complete.md) - Core server implementation
+- [Phase 2 Complete](.dev/server-phase2-complete.md) - Log service implementation
+- [Phase 3 Complete](.dev/server-phase3-complete.md) - Summarization service implementation
 
 ---
 
