@@ -186,16 +186,6 @@ export class MnemeClient {
     return this.request('GET', path);
   }
 
-  // Session Management
-
-  async registerSession(sessionId, cwd) {
-    return this.post('/session/register', { sessionId, cwd });
-  }
-
-  async unregisterSession(sessionId) {
-    return this.post('/session/unregister', { sessionId });
-  }
-
   // Health Check
 
   async health() {

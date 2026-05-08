@@ -91,42 +91,8 @@ describe('health endpoint', () => {
     assert.equal(res.status, 200);
     assert.equal(res.body.ok, true);
     assert.ok(typeof res.body.uptime === 'number');
-    assert.ok(typeof res.body.activeSessions === 'number');
     assert.ok(res.body.stats);
     assert.ok(res.body.queueDepth !== undefined);
-  });
-});
-
-describe('session management', () => {
-  it('registers a session', async () => {
-    const res = await req(port, 'POST', '/session/register', {
-      sessionId: 'test-sess-1', cwd: '/tmp/test-project',
-    });
-    assert.equal(res.status, 200);
-    assert.equal(res.body.ok, true);
-  });
-
-  it('shows session in health after registration', async () => {
-    const res = await req(port, 'GET', '/health');
-    assert.ok(res.body.activeSessions >= 1);
-  });
-
-  it('unregisters a session', async () => {
-    const res = await req(port, 'POST', '/session/unregister', { sessionId: 'test-sess-1' });
-    assert.equal(res.status, 200);
-    assert.equal(res.body.ok, true);
-  });
-
-  it('returns 400 on missing sessionId for register', async () => {
-    const res = await req(port, 'POST', '/session/register', { cwd: '/tmp' });
-    assert.equal(res.status, 400);
-    assert.equal(res.body.error, 'missing-fields');
-  });
-
-  it('returns 400 on missing sessionId for unregister', async () => {
-    const res = await req(port, 'POST', '/session/unregister', {});
-    assert.equal(res.status, 400);
-    assert.equal(res.body.error, 'missing-sessionId');
   });
 });
 

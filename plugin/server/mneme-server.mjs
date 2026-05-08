@@ -74,7 +74,6 @@ class MnemeServer {
     this.logger = new Logger(LOG_FILE);
     this.server = null;
     this.port = null;
-    this.sessions = new Set();
     this.lastActivity = Date.now();
     this.inactivityTimer = null;
     this.stats = {
@@ -238,14 +237,6 @@ class MnemeServer {
       return this.handleHealth(req, res);
     }
 
-    // Session management
-    if (req.method === 'POST' && url.pathname === '/session/register') {
-      return this.handleSessionRegister(req, res);
-    }
-    if (req.method === 'POST' && url.pathname === '/session/unregister') {
-      return this.handleSessionUnregister(req, res);
-    }
-
     // Entity tracking (no log write)
     if (req.method === 'POST' && url.pathname === '/entity/track') {
       return this.handleEntityTrack(req, res);
@@ -292,7 +283,6 @@ class MnemeServer {
     const response = {
       ok: true,
       uptime,
-      activeSessions: this.sessions.size,
       queueDepth: {
         log: this.logService.queueDepth(),
         summarize: sumStats.runningCount
@@ -330,47 +320,6 @@ class MnemeServer {
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(response));
-  }
-
-  async handleSessionRegister(req, res) {
-    const body = await this.readBody(req);
-    const { sessionId, cwd } = body;
-
-    if (!sessionId || !cwd) {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({
-        ok: false,
-        error: 'missing-fields',
-        required: ['sessionId', 'cwd']
-      }));
-      return;
-    }
-
-    this.sessions.add(sessionId);
-    this.logger.info('session-registered', { sessionId, cwd, total: this.sessions.size });
-
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ ok: true }));
-  }
-
-  async handleSessionUnregister(req, res) {
-    const body = await this.readBody(req);
-    const { sessionId } = body;
-
-    if (!sessionId) {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({
-        ok: false,
-        error: 'missing-sessionId'
-      }));
-      return;
-    }
-
-    this.sessions.delete(sessionId);
-    this.logger.info('session-unregistered', { sessionId, total: this.sessions.size });
-
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ ok: true }));
   }
 
   async handleEntityTrack(req, res) {
@@ -528,8 +477,7 @@ class MnemeServer {
     this.inactivityTimer = setInterval(() => {
       const inactive = Date.now() - this.lastActivity;
 
-      // Only shutdown if no active sessions and inactive
-      if (this.sessions.size === 0 && inactive > this.config.inactivityTimeout) {
+      if (inactive > this.config.inactivityTimeout) {
         this.logger.info('server-shutdown', {
           reason: 'inactivity',
           inactiveMs: inactive
