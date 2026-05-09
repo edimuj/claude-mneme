@@ -528,7 +528,12 @@ class MnemeServer {
       }
     }
 
-    try { unlinkSync(PID_FILE); } catch {}
+    // Only delete PID file if it still belongs to us — a replacement
+    // server may have already written its own PID file during our drain.
+    try {
+      const pidData = JSON.parse(readFileSync(PID_FILE, 'utf-8'));
+      if (pidData.pid === process.pid) unlinkSync(PID_FILE);
+    } catch {}
 
     this.logger.info('server-stopped', {
       uptime: Date.now() - new Date(this.stats.startedAt).getTime()
