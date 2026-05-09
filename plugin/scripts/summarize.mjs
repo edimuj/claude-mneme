@@ -15,14 +15,13 @@ import { join, basename, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { formatEntriesForSummary, emptyStructuredSummary } from '../lib/summary-format.mjs';
 import { logError } from '../lib/error-log.mjs';
+import { queryJsonWithRetry } from '../lib/llm-query.mjs';
 import {
-  ensureDeps,
   ensureMemoryDirs,
   loadConfig,
   getProjectName,
   deduplicateEntries,
   withFileLock,
-  withoutNestedSessionGuard
 } from './utils.mjs';
 import { getLogFileState, writeLogMetadata } from '../lib/log-metadata.mjs';
 
@@ -118,58 +117,9 @@ Rules:
 - Output ONLY the JSON object, no other text`;
 
   try {
-    ensureDeps();
-    const { query } = await import('@anthropic-ai/claude-agent-sdk');
-
-    async function* messageGenerator() {
-      yield {
-        type: 'user',
-        message: { role: 'user', content: prompt },
-        session_id: `memory-migrate-${Date.now()}`,
-        parent_tool_use_id: null,
-        isSynthetic: true
-      };
-    }
-
-    const response = await withoutNestedSessionGuard(async () => {
-      let stderrOutput = '';
-      const queryResult = query({
-        prompt: messageGenerator(),
-        options: {
-          model: config.model,
-          disallowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Grep', 'Glob', 'WebFetch', 'WebSearch', 'Task', 'TodoWrite'],
-          pathToClaudeCodeExecutable: config.claudePath,
-          stderr: (data) => { stderrOutput += data; }
-        }
-      });
-
-      let result = '';
-      try {
-        for await (const message of queryResult) {
-          if (message.type === 'assistant') {
-            const content = message.message.content;
-            result = Array.isArray(content)
-              ? content.filter(c => c.type === 'text').map(c => c.text).join('\n')
-              : typeof content === 'string' ? content : '';
-          }
-        }
-      } catch (iterError) {
-        if (!result) {
-          iterError.message += stderrOutput ? ` | stderr: ${stderrOutput.slice(0, 500)}` : ' | no stderr';
-          throw iterError;
-        }
-      }
-      return result;
-    });
-
-    if (response) {
-      const jsonMatch = response.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const migrated = JSON.parse(jsonMatch[0]);
-        migrated.lastUpdated = new Date().toISOString();
-        return migrated;
-      }
-    }
+    const migrated = await queryJsonWithRetry(prompt, 'memory-migrate', config);
+    migrated.lastUpdated = new Date().toISOString();
+    return migrated;
   } catch (error) {
     console.error(`[claude-mneme] Migration error: ${error.message}`);
     logError(error, 'summarize-migrate');
@@ -256,56 +206,7 @@ Rules:
 - Output ONLY the JSON object`;
 
   try {
-    ensureDeps();
-    const { query } = await import('@anthropic-ai/claude-agent-sdk');
-
-    async function* messageGenerator() {
-      yield {
-        type: 'user',
-        message: { role: 'user', content: prompt },
-        session_id: `memory-summarize-${Date.now()}`,
-        parent_tool_use_id: null,
-        isSynthetic: true
-      };
-    }
-
-    const response = await withoutNestedSessionGuard(async () => {
-      let stderrOutput = '';
-      const queryResult = query({
-        prompt: messageGenerator(),
-        options: {
-          model: config.model,
-          disallowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Grep', 'Glob', 'WebFetch', 'WebSearch', 'Task', 'TodoWrite'],
-          pathToClaudeCodeExecutable: config.claudePath,
-          stderr: (data) => { stderrOutput += data; }
-        }
-      });
-
-      let result = '';
-      try {
-        for await (const message of queryResult) {
-          if (message.type === 'assistant') {
-            const content = message.message.content;
-            result = Array.isArray(content)
-              ? content.filter(c => c.type === 'text').map(c => c.text).join('\n')
-              : typeof content === 'string' ? content : '';
-          }
-        }
-      } catch (iterError) {
-        if (!result) {
-          iterError.message += stderrOutput ? ` | stderr: ${stderrOutput.slice(0, 500)}` : ' | no stderr';
-          throw iterError;
-        }
-      }
-      return result;
-    });
-
-    if (response) {
-      const jsonMatch = response.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        return JSON.parse(jsonMatch[0]);
-      }
-    }
+    return await queryJsonWithRetry(prompt, 'memory-summarize', config);
   } catch (error) {
     console.error(`[claude-mneme] Summarization error: ${error.message}`);
     logError(error, 'summarize');

@@ -19,14 +19,13 @@ import { homedir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { formatEntriesForSummary, emptyStructuredSummary } from '../lib/summary-format.mjs';
 import { logError } from '../lib/error-log.mjs';
+import { queryJsonWithRetry } from '../lib/llm-query.mjs';
 import {
-  ensureDeps,
   ensureMemoryDirs,
   loadConfig,
   getProjectName,
   deduplicateEntries,
   flushPendingLog,
-  withoutNestedSessionGuard,
   withFileLock
 } from './utils.mjs';
 import { getLogFileState, writeLogMetadata } from '../lib/log-metadata.mjs';
@@ -288,57 +287,7 @@ Rules:
 
     console.error(`[claude-mneme] Summarizing ${entriesToSummarize.length} entries for "${projectName}"...`);
 
-    async function* messageGenerator() {
-      yield {
-        type: 'user',
-        message: { role: 'user', content: prompt },
-        session_id: `memory-summarize-manual-${Date.now()}`,
-        parent_tool_use_id: null,
-        isSynthetic: true
-      };
-    }
-
-    const response = await withoutNestedSessionGuard(async () => {
-      let stderrOutput = '';
-      const queryResult = query({
-        prompt: messageGenerator(),
-        options: {
-          model: config.model,
-          disallowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Grep', 'Glob', 'WebFetch', 'WebSearch', 'Task', 'TodoWrite'],
-          pathToClaudeCodeExecutable: config.claudePath,
-          stderr: (data) => { stderrOutput += data; }
-        }
-      });
-
-      let result = '';
-      try {
-        for await (const message of queryResult) {
-          if (message.type === 'assistant') {
-            const content = message.message.content;
-            result = Array.isArray(content)
-              ? content.filter(c => c.type === 'text').map(c => c.text).join('\n')
-              : typeof content === 'string' ? content : '';
-          }
-        }
-      } catch (iterError) {
-        if (!result) {
-          iterError.message += stderrOutput ? ` | stderr: ${stderrOutput.slice(0, 500)}` : ' | no stderr';
-          throw iterError;
-        }
-      }
-      return result;
-    });
-
-    if (!response) {
-      throw new Error('No response from summarization model');
-    }
-
-    const jsonMatch = response.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      throw new Error('Could not parse JSON from response');
-    }
-
-    const updates = JSON.parse(jsonMatch[0]);
+    const updates = await queryJsonWithRetry(prompt, 'memory-summarize-manual', config);
 
     // Apply updates to summary
     const result = { ...existingSummary };

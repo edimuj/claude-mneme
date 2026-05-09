@@ -139,28 +139,34 @@ class MnemeServer {
   }
 
   async start() {
-    // Clean up stale PID file
+    // Check if another server is already running (defense-in-depth — client holds the spawn lock)
     if (existsSync(PID_FILE)) {
       try {
         const { pid } = JSON.parse(readFileSync(PID_FILE, 'utf-8'));
         try {
-          process.kill(pid, 0); // Check if process exists
+          process.kill(pid, 0);
           this.logger.warn('server-start-aborted', {
             reason: 'server-already-running',
             pid
           });
           process.exit(1);
         } catch {
-          // Process dead, clean up
           unlinkSync(PID_FILE);
         }
       } catch (e) {
-        unlinkSync(PID_FILE);
+        try { unlinkSync(PID_FILE); } catch {}
       }
     }
 
+    this.activeConnections = new Set();
+
     // Create HTTP server
     this.server = createServer(this.handleRequest.bind(this));
+
+    this.server.on('connection', (socket) => {
+      this.activeConnections.add(socket);
+      socket.on('close', () => this.activeConnections.delete(socket));
+    });
 
     // Listen on random available port (localhost only)
     await new Promise((resolve, reject) => {
@@ -488,6 +494,9 @@ class MnemeServer {
   }
 
   async shutdown() {
+    if (this._shutdownStarted) return;
+    this._shutdownStarted = true;
+
     if (this.inactivityTimer) {
       clearInterval(this.inactivityTimer);
     }
@@ -498,12 +507,28 @@ class MnemeServer {
     await this.summarizationService.shutdown();
 
     if (this.server) {
+      // Stop accepting new connections
       this.server.close();
+
+      // Give in-flight requests up to 2s to finish, then force-close
+      if (this.activeConnections.size > 0) {
+        await Promise.race([
+          new Promise(resolve => {
+            const check = () => {
+              if (this.activeConnections.size === 0) resolve();
+              else setTimeout(check, 50);
+            };
+            check();
+          }),
+          new Promise(resolve => setTimeout(resolve, 2000))
+        ]);
+        for (const socket of this.activeConnections) {
+          socket.destroy();
+        }
+      }
     }
 
-    if (existsSync(PID_FILE)) {
-      unlinkSync(PID_FILE);
-    }
+    try { unlinkSync(PID_FILE); } catch {}
 
     this.logger.info('server-stopped', {
       uptime: Date.now() - new Date(this.stats.startedAt).getTime()

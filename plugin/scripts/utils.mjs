@@ -415,6 +415,7 @@ function deepMerge(target, source) {
  * Load config with defaults (cached per process)
  */
 let _cachedConfig = null;
+export function resetConfigCache() { _cachedConfig = null; }
 export function loadConfig() {
   if (_cachedConfig) return _cachedConfig;
 
@@ -623,6 +624,7 @@ export function loadConfig() {
 
   // Resolve claudePath to absolute path if it's a bare command name.
   // The claude-agent-sdk requires an absolute path, not a PATH lookup.
+  let claudePathResolved = false;
   if (config.claudePath && !config.claudePath.startsWith('/')) {
     let resolved;
     try {
@@ -647,10 +649,18 @@ export function loadConfig() {
     }
     if (resolved) {
       config.claudePath = resolved;
+      claudePathResolved = true;
     }
+  } else if (config.claudePath?.startsWith('/')) {
+    claudePathResolved = true;
   }
 
-  _cachedConfig = config;
+  // Only cache if claudePath resolved successfully.
+  // If it stayed as a bare name (e.g. 'claude'), re-resolve next call
+  // so a newly installed binary gets picked up.
+  if (claudePathResolved) {
+    _cachedConfig = config;
+  }
   return config;
 }
 
@@ -1247,7 +1257,7 @@ export async function trackEntityOnly(entry, cwd = process.cwd()) {
  * Append entry to pending log (atomic append, no locking).
  * Used as fallback when Plugin Service is unavailable.
  */
-function appendToPendingLog(entry, cwd = process.cwd()) {
+export function appendToPendingLog(entry, cwd = process.cwd()) {
   const paths = ensureMemoryDirs(cwd);
   const pendingPath = paths.log.replace('.jsonl', '.pending.jsonl');
   try {
