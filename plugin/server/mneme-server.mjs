@@ -481,6 +481,23 @@ class MnemeServer {
 
   startInactivityMonitor() {
     this.inactivityTimer = setInterval(() => {
+      // Orphan detection: if the PID file no longer points to us,
+      // a replacement server has taken over — shut down.
+      try {
+        if (existsSync(PID_FILE)) {
+          const { pid } = JSON.parse(readFileSync(PID_FILE, 'utf-8'));
+          if (pid !== process.pid) {
+            this.logger.info('server-shutdown', { reason: 'orphaned' });
+            this.shutdown();
+            return;
+          }
+        } else {
+          this.logger.info('server-shutdown', { reason: 'pid-file-missing' });
+          this.shutdown();
+          return;
+        }
+      } catch {}
+
       const inactive = Date.now() - this.lastActivity;
 
       if (inactive > this.config.inactivityTimeout) {
