@@ -71,99 +71,101 @@ async function pingServer(host, port) {
 }
 
 /**
- * Ensure server is running, start if needed
+ * Wait for a server to appear (PID file + healthy ping).
+ * Used by lock-losers while the winner spawns.
+ */
+async function waitForServer(maxMs = 3000) {
+  const deadline = Date.now() + maxMs;
+  while (Date.now() < deadline) {
+    await new Promise(r => setTimeout(r, 100));
+    if (existsSync(PID_FILE)) {
+      try {
+        const { host, port } = JSON.parse(readFileSync(PID_FILE, 'utf-8'));
+        if (await pingServer(host, port)) return { host, port };
+      } catch {}
+    }
+  }
+  return null;
+}
+
+/**
+ * Ensure server is running, start if needed.
+ * Version upgrades and spawning are both serialized under the same lock
+ * to prevent multiple callers from kill-and-respawning simultaneously.
  * Returns { host, port }
  */
 export async function ensureServer() {
-  // Check if server is already running
+  // Fast path: server is running, correct version, and healthy
   if (existsSync(PID_FILE)) {
     try {
       const pidData = JSON.parse(readFileSync(PID_FILE, 'utf-8'));
       const { pid, host, port } = pidData;
 
       // Verify process is alive
-      try {
-        process.kill(pid, 0); // Signal 0 = check existence
-      } catch {
-        // Process dead, clean up stale PID file
-        try { unlinkSync(PID_FILE); } catch {}
-        return ensureServer(); // Retry
-      }
+      try { process.kill(pid, 0); } catch { /* dead — fall through to spawn path */ pidData._dead = true; }
 
-      // Check for version mismatch (plugin was reinstalled/upgraded)
-      // Compare extracted versions, not full paths — different rigs have different paths for the same code
-      if (extractVersion(pidData.serverScript) !== extractVersion(SERVER_SCRIPT)) {
-        try {
-          process.kill(pid, 'SIGTERM');
-        } catch {}
-        try { unlinkSync(PID_FILE); } catch {}
-        // Brief pause for the old process to release the port
-        await new Promise(r => setTimeout(r, 200));
-        return ensureServer(); // Restart with current version
+      if (!pidData._dead) {
+        // Correct version and responsive → use it
+        if (extractVersion(pidData.serverScript) === extractVersion(SERVER_SCRIPT)) {
+          if (await pingServer(host, port)) {
+            return { host, port };
+          }
+        }
+        // Wrong version or unresponsive → fall through to locked upgrade/spawn
       }
-
-      // Verify server is responsive
-      if (await pingServer(host, port)) {
-        return { host, port };
-      }
-
-      // Server not responsive, clean up and retry
-      try { unlinkSync(PID_FILE); } catch {}
-      return ensureServer();
-    } catch (e) {
-      // Invalid PID file, clean up
-      try { unlinkSync(PID_FILE); } catch {}
-      return ensureServer();
-    }
+    } catch { /* corrupt PID file — fall through */ }
   }
 
-  // Acquire startup lock — only one client should spawn a server
+  // Acquire startup lock — serializes both version upgrades and fresh spawns
   if (!tryAcquireLock()) {
-    // Another client is spawning — wait for it to finish
-    for (let i = 0; i < 30; i++) {
-      await new Promise(r => setTimeout(r, 100));
-      if (existsSync(PID_FILE)) {
-        try {
-          const { host, port } = JSON.parse(readFileSync(PID_FILE, 'utf-8'));
-          if (await pingServer(host, port)) return { host, port };
-        } catch {}
-      }
-    }
+    // Another client holds the lock — wait for it to finish
+    const result = await waitForServer(3000);
+    if (result) return result;
     throw new Error('Server failed to start (another client is spawning)');
   }
 
-  // Double-check PID file after acquiring lock (another server may have started)
-  if (existsSync(PID_FILE)) {
-    try { unlinkSync(LOCK_FILE); } catch {}
-    return ensureServer();
-  }
-
-  // Start server (detached process)
-  const child = spawn('node', [SERVER_SCRIPT], {
-    detached: true,
-    stdio: 'ignore'
-  });
-  child.unref();
-
-  // Wait for server to be ready (max 3 seconds)
-  for (let i = 0; i < 30; i++) {
-    await new Promise(r => setTimeout(r, 100));
-
+  // We hold the lock. Re-check state (another caller may have finished just before us).
+  try {
     if (existsSync(PID_FILE)) {
       try {
-        const { host, port } = JSON.parse(readFileSync(PID_FILE, 'utf-8'));
-        if (await pingServer(host, port)) {
-          try { unlinkSync(LOCK_FILE); } catch {}
-          return { host, port };
+        const pidData = JSON.parse(readFileSync(PID_FILE, 'utf-8'));
+        const { pid, host, port } = pidData;
+
+        let alive = false;
+        try { process.kill(pid, 0); alive = true; } catch {}
+
+        if (alive && extractVersion(pidData.serverScript) === extractVersion(SERVER_SCRIPT)) {
+          if (await pingServer(host, port)) {
+            return { host, port };
+          }
         }
+
+        // Kill old/unresponsive server
+        if (alive) {
+          try { process.kill(pid, 'SIGTERM'); } catch {}
+          await new Promise(r => setTimeout(r, 300));
+        }
+        try { unlinkSync(PID_FILE); } catch {}
       } catch {
-        // Not ready yet, continue waiting
+        try { unlinkSync(PID_FILE); } catch {}
       }
     }
-  }
 
-  try { unlinkSync(LOCK_FILE); } catch {}
-  throw new Error('Server failed to start within 3 seconds');
+    // Spawn new server
+    const child = spawn('node', [SERVER_SCRIPT], {
+      detached: true,
+      stdio: 'ignore'
+    });
+    child.unref();
+
+    // Wait for server to be ready (max 3 seconds)
+    const result = await waitForServer(3000);
+    if (result) return result;
+
+    throw new Error('Server failed to start within 3 seconds');
+  } finally {
+    try { unlinkSync(LOCK_FILE); } catch {}
+  }
 }
 
 const RETRYABLE_CODES = new Set(['ECONNREFUSED', 'ECONNRESET', 'EPIPE', 'ERR_SOCKET_CONNECTION_TIMEOUT']);
