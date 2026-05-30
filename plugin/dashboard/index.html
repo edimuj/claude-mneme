@@ -245,6 +245,10 @@ function truncate(str, len = 200) {
 
 function syntaxHighlight(json) {
   if (typeof json !== 'string') json = JSON.stringify(json, null, 2);
+  // Escape HTML before injecting <span> markup, or values containing
+  // < > & (e.g. a remembered note with an <img onerror>) would render as
+  // live DOM. Escape & first so we don't double-encode the entities below.
+  json = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   return json.replace(/("(?:\\.|[^"\\])*")\s*:/g, '<span class="json-key">$1</span>:')
     .replace(/:\s*("(?:\\.|[^"\\])*")/g, ': <span class="json-string">$1</span>')
     .replace(/:\s*(\d+\.?\d*)/g, ': <span class="json-number">$1</span>')
@@ -290,12 +294,12 @@ let state = {
 // --- API ---
 
 async function api(path) {
-  const res = await fetch(path);
+  const res = await fetch(new URL(path.replace(/^\//, ''), window.location.href));
   return res.json();
 }
 
 async function postAction(url, body = {}) {
-  const res = await fetch(url, {
+  const res = await fetch(new URL(url.replace(/^\//, ''), window.location.href), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),

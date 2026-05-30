@@ -178,7 +178,11 @@ export function withFileLock(lockPath, fn, staleSec = 10) {
     if (e.code !== 'EEXIST') throw e;
     // Lock exists — check if stale
     try {
-      if (Date.now() - statSync(lockPath).mtimeMs >= staleSec * 1000) {
+      // Clamp age to >=0: filesystem mtime can read marginally ahead of
+      // Date.now() (clock skew/rounding), which would make a fresh lock's age
+      // negative and defeat staleSec=0 ("always stale"). Math.max keeps the
+      // comparison deterministic.
+      if (Math.max(0, Date.now() - statSync(lockPath).mtimeMs) >= staleSec * 1000) {
         unlinkSync(lockPath);
         // Retry once
         const fd = openSync(lockPath, fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_WRONLY);

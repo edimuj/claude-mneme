@@ -57,37 +57,8 @@ async function runTests() {
     assert(typeof health.stats.requestsHandled === 'number', 'Request count tracked');
   });
 
-  await test('Session registration', async () => {
-    const client = await getClient();
-    const sessionId = randomUUID();
-
-    await client.registerSession(sessionId, '/test/path');
-    const health = await client.health();
-    assert(health.activeSessions === 1, 'Active sessions increased');
-
-    await client.unregisterSession(sessionId);
-    const health2 = await client.health();
-    assert(health2.activeSessions === 0, 'Active sessions decreased');
-  });
-
-  await test('Multiple sessions', async () => {
-    const client = await getClient();
-    const sessions = [randomUUID(), randomUUID(), randomUUID()];
-
-    for (const id of sessions) {
-      await client.registerSession(id, '/test');
-    }
-
-    const health = await client.health();
-    assert(health.activeSessions === 3, 'Three active sessions');
-
-    for (const id of sessions) {
-      await client.unregisterSession(id);
-    }
-
-    const health2 = await client.health();
-    assert(health2.activeSessions === 0, 'All sessions unregistered');
-  });
+  // Session register/unregister tests removed in 784d0af — the plugin service
+  // no longer tracks sessions (dead feature). activeSessions stays 0.
 
   await test('Server reuse', async () => {
     const client1 = await getClient();

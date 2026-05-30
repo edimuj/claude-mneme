@@ -108,19 +108,8 @@ describe('MnemeClient — API methods', () => {
     assert.equal(lastRequest.path, '/health');
   });
 
-  it('registerSession() sends POST /session/register', async () => {
-    const client = new MnemeClient('127.0.0.1', mockPort);
-    await client.registerSession('sess-1', '/home/test/project');
-    assert.equal(lastRequest.path, '/session/register');
-    assert.deepEqual(lastRequest.body, { sessionId: 'sess-1', cwd: '/home/test/project' });
-  });
-
-  it('unregisterSession() sends POST /session/unregister', async () => {
-    const client = new MnemeClient('127.0.0.1', mockPort);
-    await client.unregisterSession('sess-1');
-    assert.equal(lastRequest.path, '/session/unregister');
-    assert.deepEqual(lastRequest.body, { sessionId: 'sess-1' });
-  });
+  // Note: session register/unregister was removed in 784d0af (dead session
+  // tracking). No client methods or server routes exist for it any more.
 
   it('trackEntity() sends POST /entity/track', async () => {
     const client = new MnemeClient('127.0.0.1', mockPort);
