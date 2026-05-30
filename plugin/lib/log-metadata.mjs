@@ -1,5 +1,6 @@
-import { existsSync, readFileSync, writeFileSync, statSync } from 'fs';
+import { existsSync, readFileSync, statSync } from 'fs';
 import { dirname, join } from 'path';
+import { writeFileAtomic } from './atomic-write.mjs';
 
 const LOG_METADATA_FILE = 'log.meta.json';
 
@@ -42,7 +43,7 @@ export function writeLogMetadata(logPath, entryCount, fileState = getLogFileStat
   };
 
   try {
-    writeFileSync(metadataPath, JSON.stringify(payload, null, 2) + '\n');
+    writeFileAtomic(metadataPath, JSON.stringify(payload, null, 2) + '\n');
     return payload;
   } catch (err) {
     if (logErrorFn) {

@@ -7,6 +7,7 @@
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
+import { writeFileAtomic } from './atomic-write.mjs';
 
 // ---------------------------------------------------------------------------
 // Extraction helpers
@@ -347,7 +348,7 @@ export function applyExtractedEntitiesToIndex(index, entities, entry, eeConfig =
 export function writeEntityIndex(projectDir, index, logErrorFn = () => {}) {
   const entitiesPath = join(projectDir, 'entities.json');
   try {
-    writeFileSync(entitiesPath, JSON.stringify(index, null, 2));
+    writeFileAtomic(entitiesPath, JSON.stringify(index, null, 2));
     return true;
   } catch (e) {
     logErrorFn(e, 'writeEntityIndex');

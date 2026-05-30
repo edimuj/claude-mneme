@@ -9,11 +9,12 @@
  * Only new entries are sent to Haiku, not the entire summary.
  */
 
-import { readFileSync, writeFileSync, existsSync, unlinkSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, unlinkSync, openSync, closeSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, basename, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { formatEntriesForSummary, emptyStructuredSummary } from '../lib/summary-format.mjs';
+import { writeFileAtomic } from '../lib/atomic-write.mjs';
 import { logError } from '../lib/error-log.mjs';
 import { queryJsonWithRetry } from '../lib/llm-query.mjs';
 import {
@@ -311,7 +312,7 @@ if (_isDirectRun) {
   if (migrateOnly) {
     const migrated = await migrateMarkdownSummary();
     if (migrated) {
-      writeFileSync(paths.summaryJson, JSON.stringify(migrated, null, 2) + '\n');
+      writeFileAtomic(paths.summaryJson, JSON.stringify(migrated, null, 2) + '\n');
       console.error(`[claude-mneme] Migration complete. Created summary.json for "${projectName}".`);
       console.error('[claude-mneme] You can delete summary.md if the migration looks correct.');
     }
@@ -336,9 +337,20 @@ if (_isDirectRun) {
     process.exit(0);
   }
 
-  // Lock file for concurrency control.
+  // Lock file for concurrency control (O_EXCL — atomic create so two
+  // concurrent summarize processes can't both proceed and double-truncate).
   const lockFile = paths.log + '.lock';
-  writeFileSync(lockFile, Date.now().toString());
+  try {
+    closeSync(openSync(lockFile, 'wx'));
+  } catch (e) {
+    if (e.code !== 'EEXIST') throw e;
+    // Lock held — bail unless it's stale (crashed process left it behind).
+    let stale = true;
+    try { stale = (Date.now() - statSync(lockFile).mtimeMs) > 120000; } catch {}
+    if (!stale) process.exit(0);
+    try { unlinkSync(lockFile); closeSync(openSync(lockFile, 'wx')); }
+    catch { process.exit(0); }
+  }
 
   try {
     // Check if we need to migrate first
@@ -348,7 +360,7 @@ if (_isDirectRun) {
       const migrated = await migrateMarkdownSummary();
       if (migrated) {
         existingSummary = migrated;
-        writeFileSync(paths.summaryJson, JSON.stringify(existingSummary, null, 2) + '\n');
+        writeFileAtomic(paths.summaryJson, JSON.stringify(existingSummary, null, 2) + '\n');
       }
     }
 
@@ -368,7 +380,6 @@ if (_isDirectRun) {
 
     if (updates) {
       const newSummary = applyUpdates(existingSummary, updates);
-      writeFileSync(paths.summaryJson, JSON.stringify(newSummary, null, 2) + '\n');
 
       // Re-read the log under write lock to prevent flushPendingLog from
       // appending between our read and write (which would silently lose entries).
@@ -377,7 +388,11 @@ if (_isDirectRun) {
         const currentLogContent = readFileSync(paths.log, 'utf-8').trim();
         const currentLines = currentLogContent ? currentLogContent.split('\n').filter(l => l) : [];
         const remainingLines = currentLines.slice(summarizeCount);
-        writeFileSync(paths.log, remainingLines.join('\n') + (remainingLines.length ? '\n' : ''));
+        // Record how many entries remain so the server's isNeeded() can track
+        // new-since-last-summarize instead of always seeing a cold count.
+        newSummary.lastEntryIndex = remainingLines.length;
+        writeFileAtomic(paths.summaryJson, JSON.stringify(newSummary, null, 2) + '\n');
+        writeFileAtomic(paths.log, remainingLines.join('\n') + (remainingLines.length ? '\n' : ''));
         writeLogMetadata(paths.log, remainingLines.length, getLogFileState(paths.log), (err, context) => logError(err, `summarize:${context}`));
         return remainingLines.length;
       }, 30);

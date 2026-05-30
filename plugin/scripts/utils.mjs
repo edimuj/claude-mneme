@@ -352,13 +352,18 @@ export function readRecentJsonlEntries(filePath, maxEntries = 250, chunkSize = 6
     let position = fileSize;
     let content = '';
     let lineCount = 0;
+    // Accumulate raw bytes and decode the whole buffer at once. Decoding each
+    // chunk independently would corrupt any multi-byte UTF-8 sequence that
+    // straddles a chunk boundary (→ U+FFFD → the JSON line silently dropped).
+    const chunks = [];
 
     while (position > 0 && lineCount <= maxEntries) {
       const bytesToRead = Math.min(chunkSize, position);
       position -= bytesToRead;
       const buffer = Buffer.alloc(bytesToRead);
       readSync(fd, buffer, 0, bytesToRead, position);
-      content = buffer.toString('utf-8') + content;
+      chunks.unshift(buffer);
+      content = Buffer.concat(chunks).toString('utf-8');
       lineCount = content.split('\n').filter(Boolean).length;
     }
 

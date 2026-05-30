@@ -5,8 +5,8 @@
  * Next session-start will inject it and archive it automatically.
  */
 
-import { writeFileSync } from 'node:fs';
 import { ensureMemoryDirs, getProjectName, invalidateCache } from './utils.mjs';
+import { writeFileAtomic } from '../lib/atomic-write.mjs';
 import { logError } from '../lib/error-log.mjs';
 
 const cwd = process.cwd();
@@ -36,7 +36,7 @@ process.stdin.on('end', () => {
       ...(data.context && { context: data.context }),
     };
 
-    writeFileSync(briefingPath, JSON.stringify(briefing, null, 2) + '\n');
+    writeFileAtomic(briefingPath, JSON.stringify(briefing, null, 2) + '\n');
     invalidateCache(cwd);
 
     console.log(`Briefing saved for "${projectName}". Next session will pick it up automatically.`);

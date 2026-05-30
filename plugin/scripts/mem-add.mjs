@@ -8,8 +8,9 @@
  * Users must manually remove entries they no longer need.
  */
 
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { ensureMemoryDirs, getProjectName, invalidateCache, withFileLock } from './utils.mjs';
+import { writeFileAtomic } from '../lib/atomic-write.mjs';
 import { logError } from '../lib/error-log.mjs';
 
 const cwd = process.cwd();
@@ -52,7 +53,7 @@ withFileLock(lockPath, () => {
     content
   });
 
-  writeFileSync(paths.remembered, JSON.stringify(entries, null, 2) + '\n');
+  writeFileAtomic(paths.remembered, JSON.stringify(entries, null, 2) + '\n');
 }, 10);
 
 invalidateCache(cwd);
