@@ -47,6 +47,7 @@ export class SummarizationService {
       ttlMs: config.cache?.ttlMs || 5 * 60 * 1000
     });
     this.running = new Map(); // project -> Promise
+    this.pendingRetrigger = new Set(); // projects with a scheduled re-check
     this.stats = {
       summarizationsStarted: 0,
       summarizationsCompleted: 0,
@@ -93,6 +94,10 @@ export class SummarizationService {
     } catch (err) {
       if (err instanceof ThrottleError) {
         this.stats.throttled++;
+        // Don't silently drop the trigger — a burst of entries within the
+        // cooldown would otherwise never summarize until the next hook event.
+        // Re-check once the cooldown elapses.
+        this._scheduleRetrigger(project, err.retryAfterMs);
         return {
           ok: true,
           queued: false,
@@ -131,6 +136,21 @@ export class SummarizationService {
   }
 
   /**
+   * Schedule a single deferred re-trigger for a throttled project, so a burst
+   * of entries during the cooldown still gets summarized once it elapses.
+   */
+  _scheduleRetrigger(project, retryAfterMs) {
+    if (this.pendingRetrigger.has(project)) return;
+    this.pendingRetrigger.add(project);
+    const timer = setTimeout(() => {
+      this.pendingRetrigger.delete(project);
+      // trigger() re-checks throttle + isNeeded and no-ops if nothing to do.
+      this.trigger(project, false).catch(() => {});
+    }, Math.max(1000, (retryAfterMs || this.throttler.cooldownMs || 30000) + 100));
+    if (typeof timer.unref === 'function') timer.unref();
+  }
+
+  /**
    * Check if summarization is needed
    */
   isNeeded(project) {
@@ -165,7 +185,11 @@ export class SummarizationService {
     }
 
     const newEntries = entryCount - lastSummarizedCount;
-    const threshold = this.config.summarization?.entryThreshold || 50;
+    // summarize.mjs gates on maxLogEntriesBeforeSummarize; keep the server's
+    // threshold aligned with it (entryThreshold kept as a back-compat override).
+    const threshold = this.config.summarization?.entryThreshold
+      || this.config.maxLogEntriesBeforeSummarize
+      || 50;
 
     return newEntries >= threshold;
   }
@@ -179,12 +203,18 @@ export class SummarizationService {
     this.logger.info('summarization-started', { project });
 
     return new Promise((resolve, reject) => {
+      // Don't inherit stdio: the server runs detached, so 'inherit' sends the
+      // child's stderr to /dev/null (hiding all summarization failures).
+      // Capture it and surface it through the logger instead.
       const child = spawn('node', [
         SUMMARIZE_SCRIPT,
         projectDir
       ], {
-        stdio: 'inherit'
+        stdio: ['ignore', 'pipe', 'pipe']
       });
+
+      let stderrBuf = '';
+      child.stderr?.on('data', (d) => { stderrBuf += d.toString(); });
 
       child.on('exit', (code) => {
         if (code === 0) {
@@ -197,7 +227,7 @@ export class SummarizationService {
           resolve({ ok: true });
         } else {
           this.stats.summarizationsFailed++;
-          this.logger.error('summarization-failed', { project, exitCode: code });
+          this.logger.error('summarization-failed', { project, exitCode: code, stderr: stderrBuf.slice(0, 1000) });
           reject(new Error(`Summarization failed with code ${code}`));
         }
       });
